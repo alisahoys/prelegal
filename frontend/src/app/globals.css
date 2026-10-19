@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.nda-preview { font-family: Georgia, "Times New Roman", serif; line-height: 1.5; font-size: 0.95rem; }
+.nda-preview h1 { font-size: 1.6rem; font-weight: 700; margin: 0 0 1rem; }
+.nda-preview h2 { font-size: 1.15rem; font-weight: 700; margin: 1.25rem 0 0.5rem; }
+.nda-preview h3 { font-size: 1rem; font-weight: 700; margin: 1rem 0 0.25rem; }
+.nda-preview p { margin: 0 0 0.75rem; }
+.nda-preview a { color: #1d4ed8; text-decoration: underline; }
+.nda-preview hr { margin: 2rem 0; border-color: #d4d4d8; }
+.nda-preview table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+.nda-preview th, .nda-preview td { border: 1px solid #a1a1aa; padding: 0.5rem; text-align: left; height: 2.25rem; }
