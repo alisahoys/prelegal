@@ -69,7 +69,28 @@ export default function NdaCreator({ template }: { template: string }) {
   async function downloadPdf() {
     const { default: html2pdf } = await import("html2pdf.js");
     const el = document.getElementById("nda-preview");
-    if (el) await html2pdf().set({ margin: 15, filename: "Mutual-NDA.pdf" }).from(el).save();
+    if (!el) return;
+    // html2canvas cannot parse the lab()/oklch() colors Tailwind emits, so render the clone with only the preview's own rules.
+    const previewRules = Array.from(document.styleSheets)
+      .flatMap((sheet) => Array.from(sheet.cssRules))
+      .filter((rule) => rule instanceof CSSStyleRule && rule.selectorText.startsWith(".nda-preview"))
+      .map((rule) => rule.cssText)
+      .join("\n");
+    await html2pdf()
+      .set({
+        margin: 15,
+        filename: "Mutual-NDA.pdf",
+        html2canvas: {
+          onclone: (doc: Document) => {
+            doc.querySelectorAll('style, link[rel="stylesheet"]').forEach((n) => n.remove());
+            const style = doc.createElement("style");
+            style.textContent = previewRules;
+            doc.head.appendChild(style);
+          },
+        },
+      })
+      .from(el)
+      .save();
   }
 
   return (
