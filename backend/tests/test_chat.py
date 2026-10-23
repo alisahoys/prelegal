@@ -49,7 +49,7 @@ def fake_completion(content: str):
 @pytest.mark.anyio
 async def test_litellm_uses_openrouter_model_fallbacks_and_structured_output(monkeypatch):
     configured(monkeypatch)
-    completion = AsyncMock(return_value=fake_completion('{"reply":"What state?","updates":{"purpose":"Evaluating a partnership"}}'))
+    completion = AsyncMock(return_value=fake_completion('{"reply":"What state?","updates":{"purpose":"Evaluating a partnership","effectiveDate":null,"mndaTermType":null,"mndaTermYears":null,"confidentialityType":null,"confidentialityYears":null,"governingLaw":null,"jurisdiction":null,"party1":null,"party2":null}}'))
     monkeypatch.setattr(ai, "acompletion", completion)
 
     result = await ai.complete_chat(ChatRequest.model_validate(payload()))
@@ -64,13 +64,15 @@ async def test_litellm_uses_openrouter_model_fallbacks_and_structured_output(mon
     assert "modifications" not in json.dumps(schema)
     assert set(schema["required"]) == set(schema["properties"])
     for party in ("party1", "party2"):
-        party_schema = schema["properties"][party]["anyOf"][0]
+        party_ref = schema["$defs"]["NdaPatch"]["properties"][party]["anyOf"][0]["$ref"]
+        party_schema_name = party_ref.rsplit("/", 1)[1]
+        party_schema = schema["$defs"][party_schema_name]
         assert set(party_schema["required"]) == set(party_schema["properties"])
 
 
 def test_returns_validated_response(client, monkeypatch):
     configured(monkeypatch)
-    monkeypatch.setattr(ai, "acompletion", AsyncMock(return_value=fake_completion('{"reply":"What state?","updates":{"purpose":"Evaluating a partnership"}}')))
+    monkeypatch.setattr(ai, "acompletion", AsyncMock(return_value=fake_completion('{"reply":"What state?","updates":{"purpose":"Evaluating a partnership","effectiveDate":null,"mndaTermType":null,"mndaTermYears":null,"confidentialityType":null,"confidentialityYears":null,"governingLaw":null,"jurisdiction":null,"party1":null,"party2":null}}')))
     response = client.post("/api/nda/chat", json=payload())
     assert response.status_code == 200
     assert response.json() == {"reply": "What state?", "updates": {"purpose": "Evaluating a partnership"}}

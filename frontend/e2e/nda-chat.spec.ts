@@ -55,7 +55,7 @@ test("ignores a pending response after sign-out", async ({ page }) => {
     contentType: "application/json",
     body: JSON.stringify({ reply: "Late response", updates: { purpose: "Stale purpose" } }),
   });
-  await expect(page.getByLabel("Purpose")).toHaveValue("");
+  await expect(page.getByLabel("Purpose")).toHaveValue("Evaluating whether to enter into a business relationship with the other party.");
   await expect(page.getByText("Late response")).toHaveCount(0);
 });
 
