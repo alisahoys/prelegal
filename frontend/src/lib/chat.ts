@@ -1,12 +1,14 @@
 import type { NdaData } from "./nda";
 
-export type ChatMessage = { role: "user" | "assistant"; content: string };
+export type ChatMessage = { role: "user" | "assistant"; content: string; suggestions?: TemplateSuggestion[] };
+export type TemplateSuggestion = { templateId: string; reason: string };
+export type ChatTemplate = { id: string; name: string; description: string; editor: "nda" | "markdown" };
 export type PartyPatch = Partial<NdaData["party1"]>;
 export type NdaPatch = Partial<Omit<NdaData, "modifications" | "party1" | "party2">> & {
   party1?: PartyPatch | null;
   party2?: PartyPatch | null;
 };
-export type ChatResponse = { reply: string; updates: NdaPatch };
+export type ChatResponse = { reply: string; updates: NdaPatch | null; suggestions: TemplateSuggestion[]; needsMoreInformation: boolean; nextQuestion: string | null };
 export type FieldPath =
   | "purpose"
   | "effectiveDate"
@@ -58,13 +60,26 @@ export function applyPatch(data: NdaData, patch: NdaPatch, manuallyEdited: Set<F
   return { data: result, conflicts };
 }
 
-export async function sendChatTurn(message: string, history: ChatMessage[], currentData: Omit<NdaData, "modifications">): Promise<ChatResponse> {
+export async function sendChatTurn(
+  message: string,
+  history: ChatMessage[],
+  template: ChatTemplate,
+  currentData: Omit<NdaData, "modifications"> | null,
+): Promise<ChatResponse> {
   const response = await fetch("/api/nda/chat", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message, history: history.slice(-12), currentData }),
+    body: JSON.stringify({ message, history: history.slice(-12).map(({ role, content }) => ({ role, content })), currentTemplateId: template.id, currentData }),
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.detail ?? "The AI request failed. Your draft is unchanged; please try again.");
+  if (
+    typeof result.reply !== "string" ||
+    !(result.updates === null || typeof result.updates === "object") ||
+    !Array.isArray(result.suggestions) ||
+    typeof result.needsMoreInformation !== "boolean" ||
+    !(result.nextQuestion === null || typeof result.nextQuestion === "string") ||
+    result.needsMoreInformation !== Boolean(result.nextQuestion?.trim())
+  ) throw new Error("The AI response was invalid. Your draft is unchanged; please try again.");
   return result as ChatResponse;
 }
