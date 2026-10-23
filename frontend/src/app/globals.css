@@ -34,3 +34,12 @@ body {
 .nda-preview hr { margin: 2rem 0; border-color: #d4d4d8; }
 .nda-preview table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
 .nda-preview th, .nda-preview td { border: 1px solid #a1a1aa; padding: 0.5rem; text-align: left; height: 2.25rem; }
+
+@media print {
+  @page { size: A4; margin: 18mm 16mm; }
+  .nda-preview { font-size: 11pt; }
+  .nda-preview p, .nda-preview li { orphans: 3; widows: 3; }
+  .nda-preview li, .nda-preview tr, .nda-preview table { break-inside: avoid; }
+  .nda-preview h1, .nda-preview h2, .nda-preview h3 { break-after: avoid; }
+  .nda-preview thead { display: table-header-group; }
+}
