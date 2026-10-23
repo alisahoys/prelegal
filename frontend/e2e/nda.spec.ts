@@ -68,16 +68,17 @@ test("downloads the filled-in document as Markdown", async ({ page }) => {
   expect(md).not.toContain("coverpage_link");
 });
 
-test("downloads a valid PDF without runtime errors", async ({ page }) => {
+test("opens the print flow and renders a valid PDF", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  await page.evaluate(() => {
+    window.print = () => document.body.setAttribute("data-print-requested", "true");
+  });
 
-  const [download] = await Promise.all([
-    page.waitForEvent("download", { timeout: 60_000 }),
-    page.getByRole("button", { name: "Download PDF" }).click(),
-  ]);
-  expect(download.suggestedFilename()).toBe("Mutual-NDA.pdf");
-  const pdf = readFileSync((await download.path())!);
+  await page.getByRole("button", { name: "Print / Save PDF" }).click();
+  await expect(page.locator("body")).toHaveAttribute("data-print-requested", "true");
+
+  const pdf = await page.pdf();
   expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
   expect(pdf.length).toBeGreaterThan(10_000);
   expect(errors).toEqual([]);

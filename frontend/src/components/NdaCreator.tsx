@@ -66,36 +66,22 @@ export default function NdaCreator({ template }: { template: string }) {
     URL.revokeObjectURL(url);
   }
 
-  async function downloadPdf() {
-    const { default: html2pdf } = await import("html2pdf.js");
-    const el = document.getElementById("nda-preview");
-    if (!el) return;
-    // html2canvas cannot parse the lab()/oklch() colors Tailwind emits, so render the clone with only the preview's own rules.
-    const previewRules = Array.from(document.styleSheets)
-      .flatMap((sheet) => Array.from(sheet.cssRules))
-      .filter((rule) => rule instanceof CSSStyleRule && rule.selectorText.startsWith(".nda-preview"))
-      .map((rule) => rule.cssText)
-      .join("\n");
-    await html2pdf()
-      .set({
-        margin: 15,
-        filename: "Mutual-NDA.pdf",
-        html2canvas: {
-          onclone: (doc: Document) => {
-            doc.querySelectorAll('style, link[rel="stylesheet"]').forEach((n) => n.remove());
-            const style = doc.createElement("style");
-            style.textContent = previewRules;
-            doc.head.appendChild(style);
-          },
-        },
-      })
-      .from(el)
-      .save();
+  function downloadPdf() {
+    const originalTitle = document.title;
+    document.title = "Mutual-NDA";
+    window.addEventListener(
+      "afterprint",
+      () => {
+        document.title = originalTitle;
+      },
+      { once: true },
+    );
+    window.print();
   }
 
   return (
-    <div className="mx-auto grid w-full max-w-7xl gap-8 p-6 lg:grid-cols-[minmax(0,420px)_1fr]">
-      <form className="space-y-5" onSubmit={(e) => e.preventDefault()}>
+    <div className="mx-auto grid w-full max-w-7xl gap-8 p-6 print:block print:max-w-none print:p-0 lg:grid-cols-[minmax(0,420px)_1fr]">
+      <form className="space-y-5 print:hidden" onSubmit={(e) => e.preventDefault()}>
         <h1 className="text-2xl font-semibold">Mutual NDA Creator</h1>
         <Field label="Purpose" hint="How Confidential Information may be used">
           <textarea className={input} rows={3} value={data.purpose} onChange={text("purpose")} />
@@ -146,7 +132,7 @@ export default function NdaCreator({ template }: { template: string }) {
 
         <div className="flex gap-3">
           <button type="button" onClick={downloadPdf} className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
-            Download PDF
+            Print / Save PDF
           </button>
           <button type="button" onClick={downloadMarkdown} className="rounded border border-blue-600 px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50">
             Download Markdown
@@ -156,7 +142,7 @@ export default function NdaCreator({ template }: { template: string }) {
 
       <article
         id="nda-preview"
-        className="nda-preview rounded border border-zinc-300 bg-white p-8 text-black"
+        className="nda-preview rounded border border-zinc-300 bg-white p-8 text-black print:border-0 print:p-0 print:rounded-none"
         dangerouslySetInnerHTML={{ __html: html }}
       />
     </div>
