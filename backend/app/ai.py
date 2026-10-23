@@ -5,6 +5,7 @@ import litellm
 from litellm import acompletion
 from pydantic import ValidationError
 
+from app.catalog import catalog_by_id
 from app.prompts import SYSTEM_PROMPT
 from app.schemas import ChatRequest, ChatResponse
 
@@ -40,13 +41,20 @@ def _models() -> tuple[str, list[str]]:
 
 def _messages(request: ChatRequest) -> list[dict[str, str]]:
     history = request.history[-12:]
+    catalog = catalog_by_id()
+    template = catalog[request.currentTemplateId]
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         *[{"role": message.role, "content": message.content} for message in history],
         {
             "role": "user",
             "content": json.dumps(
-                {"currentData": request.currentData.model_dump(), "message": request.message},
+                {
+                    "catalog": [{"id": entry.id, "name": entry.name, "description": entry.description} for entry in catalog.values()],
+                    "selectedTemplate": {"id": template.id, "name": template.name, "editor": template.editor},
+                    "currentData": request.currentData.model_dump() if request.currentData else None,
+                    "message": request.message,
+                },
                 ensure_ascii=False,
             ),
         },
@@ -83,6 +91,16 @@ async def complete_chat(request: ChatRequest) -> ChatResponse:
         content = response.choices[0].message.content
         if not isinstance(content, str):
             raise ValueError
-        return ChatResponse.model_validate_json(content)
+        result = ChatResponse.model_validate_json(content)
+        allowed_ids = set(catalog_by_id())
+        seen: set[str] = set()
+        suggestions = []
+        for suggestion in result.suggestions:
+            if suggestion.templateId in allowed_ids and suggestion.templateId not in seen:
+                suggestions.append(suggestion)
+                seen.add(suggestion.templateId)
+        if request.currentData is None and result.updates and result.updates.model_dump(exclude_none=True):
+            raise ValueError
+        return result.model_copy(update={"suggestions": suggestions})
     except (IndexError, AttributeError, TypeError, ValueError, ValidationError):
         raise AIProviderError from None

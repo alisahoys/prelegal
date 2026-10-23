@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   await page.getByLabel("Email").fill("prototype@example.test");
   await page.getByLabel("Password").fill("prototype-password");
   await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByRole("heading", { name: "Mutual NDA Creator" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Agreement Creator" })).toBeVisible();
 });
 
 test("shows placeholders and today's date before anything is entered", async ({ page }) => {

@@ -1,60 +1,84 @@
 [
   {
+    "id": "mutual-nda-standard-terms",
+    "editor": "nda",
     "name": "Mutual Non-Disclosure Agreement (Standard Terms)",
     "description": "Common Paper standard terms for a mutual NDA, to be used with the cover page.",
     "filename": "templates/Mutual-NDA.md"
   },
   {
+    "id": "mutual-nda-cover-page",
+    "editor": "markdown",
     "name": "Mutual Non-Disclosure Agreement (Cover Page)",
     "description": "Cover page capturing the deal-specific terms of the Common Paper Mutual NDA.",
     "filename": "templates/Mutual-NDA-coverpage.md"
   },
   {
+    "id": "cloud-service-agreement",
+    "editor": "markdown",
     "name": "Cloud Service Agreement",
     "description": "Common Paper standard Cloud Service Agreement for subscription-based cloud services.",
     "filename": "templates/CSA.md"
   },
   {
+    "id": "service-level-agreement",
+    "editor": "markdown",
     "name": "Service Level Agreement",
     "description": "Common Paper Service Level Agreement covering uptime targets and support response.",
     "filename": "templates/SLA.md"
   },
   {
+    "id": "data-processing-agreement",
+    "editor": "markdown",
     "name": "Data Processing Agreement",
     "description": "Common Paper Data Processing Agreement governing processing of personal data.",
     "filename": "templates/DPA.md"
   },
   {
+    "id": "design-partner-agreement",
+    "editor": "markdown",
     "name": "Design Partner Agreement",
     "description": "Common Paper standard Design Partner Agreement for early access to a product in exchange for feedback.",
     "filename": "templates/Design-Partner-Agreement.md"
   },
   {
+    "id": "professional-services-agreement",
+    "editor": "markdown",
     "name": "Professional Services Agreement",
     "description": "Common Paper standard Professional Services Agreement for services delivered under statements of work.",
     "filename": "templates/PSA.md"
   },
   {
+    "id": "partnership-agreement",
+    "editor": "markdown",
     "name": "Partnership Agreement",
     "description": "Common Paper standard Partnership Agreement for cooperation between two businesses.",
     "filename": "templates/Partnership-Agreement.md"
   },
   {
+    "id": "business-associate-agreement",
+    "editor": "markdown",
     "name": "Business Associate Agreement",
     "description": "Common Paper standard Business Associate Agreement for handling protected health information (HIPAA).",
     "filename": "templates/BAA.md"
   },
   {
+    "id": "software-license-agreement",
+    "editor": "markdown",
     "name": "Software License Agreement",
     "description": "Common Paper standard Software License Agreement for licensed software.",
     "filename": "templates/Software-License-Agreement.md"
   },
   {
+    "id": "pilot-agreement",
+    "editor": "markdown",
     "name": "Pilot Agreement",
     "description": "Common Paper standard Pilot Agreement for time-limited trial access to a product.",
     "filename": "templates/Pilot-Agreement.md"
   },
   {
+    "id": "ai-addendum",
+    "editor": "markdown",
     "name": "AI Addendum",
     "description": "Common Paper standard AI Addendum supplementing an agreement with terms for AI services.",
     "filename": "templates/AI-Addendum.md"

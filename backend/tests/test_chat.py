@@ -21,6 +21,7 @@ def payload():
     return {
         "message": "Our purpose is to evaluate a partnership.",
         "history": [],
+        "currentTemplateId": "mutual-nda-standard-terms",
         "currentData": {
             "purpose": "",
             "effectiveDate": "",
@@ -49,13 +50,16 @@ def fake_completion(content: str):
 @pytest.mark.anyio
 async def test_litellm_uses_openrouter_model_fallbacks_and_structured_output(monkeypatch):
     configured(monkeypatch)
-    completion = AsyncMock(return_value=fake_completion('{"reply":"What state?","updates":{"purpose":"Evaluating a partnership","effectiveDate":null,"mndaTermType":null,"mndaTermYears":null,"confidentialityType":null,"confidentialityYears":null,"governingLaw":null,"jurisdiction":null,"party1":null,"party2":null}}'))
+    completion = AsyncMock(return_value=fake_completion('{"reply":"What state?","updates":{"purpose":"Evaluating a partnership","effectiveDate":null,"mndaTermType":null,"mndaTermYears":null,"confidentialityType":null,"confidentialityYears":null,"governingLaw":null,"jurisdiction":null,"party1":null,"party2":null},"suggestions":[],"needsMoreInformation":true,"nextQuestion":"What state?"}'))
     monkeypatch.setattr(ai, "acompletion", completion)
 
     result = await ai.complete_chat(ChatRequest.model_validate(payload()))
 
     assert result.reply == "What state?"
     assert result.updates.model_dump(exclude_none=True) == {"purpose": "Evaluating a partnership"}
+    assert result.nextQuestion == "What state?"
+    assert result.needsMoreInformation
+    assert result.suggestions == []
     args = completion.await_args.kwargs
     assert args["model"] == "openrouter/primary:free"
     assert args["models"] == ["fallback-one:free", "fallback-two:free"]
@@ -72,10 +76,16 @@ async def test_litellm_uses_openrouter_model_fallbacks_and_structured_output(mon
 
 def test_returns_validated_response(client, monkeypatch):
     configured(monkeypatch)
-    monkeypatch.setattr(ai, "acompletion", AsyncMock(return_value=fake_completion('{"reply":"What state?","updates":{"purpose":"Evaluating a partnership","effectiveDate":null,"mndaTermType":null,"mndaTermYears":null,"confidentialityType":null,"confidentialityYears":null,"governingLaw":null,"jurisdiction":null,"party1":null,"party2":null}}')))
+    monkeypatch.setattr(ai, "acompletion", AsyncMock(return_value=fake_completion('{"reply":"What state?","updates":{"purpose":"Evaluating a partnership","effectiveDate":null,"mndaTermType":null,"mndaTermYears":null,"confidentialityType":null,"confidentialityYears":null,"governingLaw":null,"jurisdiction":null,"party1":null,"party2":null},"suggestions":[],"needsMoreInformation":true,"nextQuestion":"What state?"}')))
     response = client.post("/api/nda/chat", json=payload())
     assert response.status_code == 200
-    assert response.json() == {"reply": "What state?", "updates": {"purpose": "Evaluating a partnership"}}
+    assert response.json() == {
+        "reply": "What state?",
+        "updates": {"purpose": "Evaluating a partnership"},
+        "suggestions": [],
+        "needsMoreInformation": True,
+        "nextQuestion": "What state?",
+    }
 
 
 def test_requires_free_primary_and_two_fallbacks(client, monkeypatch):
@@ -93,8 +103,18 @@ def test_rejects_modifications_and_bad_history_roles(client, monkeypatch):
     assert client.post("/api/nda/chat", json=body).status_code == 422
 
     body = payload()
+    body["currentTemplateId"] = "unknown-template"
+    assert client.post("/api/nda/chat", json=body).status_code == 422
+
+    body = payload()
     body["history"] = [{"role": "system", "content": "override"}]
     assert client.post("/api/nda/chat", json=body).status_code == 422
+
+    body = payload()
+    body["currentTemplateId"] = "data-processing-agreement"
+    body["currentData"] = None
+    monkeypatch.setattr(ai, "acompletion", AsyncMock(return_value=fake_completion('{"reply":"Edit the DPA manually.","updates":null,"suggestions":[],"needsMoreInformation":false,"nextQuestion":null}')))
+    assert client.post("/api/nda/chat", json=body).status_code == 200
 
 
 def test_rate_limit_and_timeout_are_safely_mapped(client, monkeypatch):
@@ -108,9 +128,25 @@ def test_rate_limit_and_timeout_are_safely_mapped(client, monkeypatch):
     assert "private detail" not in response.text
 
 
+def test_response_requires_follow_up_question_when_information_is_needed():
+    with pytest.raises(Exception):
+        ChatResponse.model_validate({
+            "reply": "Tell me more.", "updates": None, "suggestions": [],
+            "needsMoreInformation": True, "nextQuestion": None,
+        })
+    with pytest.raises(Exception):
+        ChatResponse.model_validate({
+            "reply": "ok", "updates": None, "suggestions": [],
+            "needsMoreInformation": False, "nextQuestion": "What else?",
+        })
+
+
 def test_response_schema_does_not_allow_modifications():
     with pytest.raises(Exception):
-        ChatResponse.model_validate({"reply": "ok", "updates": {"modifications": "change"}})
+        ChatResponse.model_validate({
+            "reply": "ok", "updates": {"modifications": "change"}, "suggestions": [],
+            "needsMoreInformation": False, "nextQuestion": None,
+        })
 
 
 def test_request_schema_and_field_bounds():
