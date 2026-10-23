@@ -39,7 +39,7 @@ export function defaultNdaData(): NdaData {
 
 // User text goes into markdown that is rendered as HTML, so neutralise HTML and table syntax.
 const clean = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ").trim();
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\\/g, "\\\\").replace(/([\[\]()])/g, "\\$1").replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ").trim();
 
 const orBlank = (s: string, placeholder: string) => clean(s) || `[${placeholder}]`;
 

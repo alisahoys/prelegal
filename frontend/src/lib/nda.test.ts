@@ -82,6 +82,12 @@ describe("buildDocument", () => {
     expect(doc).toContain("| Company | A &amp; B |");
   });
 
+  it("escapes Markdown links and image syntax in user text", () => {
+    const doc = buildDocument(template, filled({ purpose: "[open](javascript:alert(1)) ![image](https://example.test/x)" }));
+    expect(doc).toContain("\\[open\\]\\(javascript:alert\\(1\\)\\)");
+    expect(doc).toContain("!\\[image\\]\\(https://example.test/x\\)");
+  });
+
   it("puts each party's details in its own column", () => {
     const doc = buildDocument(
       template,

@@ -5,6 +5,9 @@ const preview = (page: Page) => page.locator("#nda-preview");
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
+  await page.getByLabel("Email").fill("prototype@example.test");
+  await page.getByLabel("Password").fill("prototype-password");
+  await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Mutual NDA Creator" })).toBeVisible();
 });
 
@@ -43,9 +46,13 @@ test("switches the MNDA and confidentiality terms", async ({ page }) => {
   await expect(doc).toContainText("in perpetuity");
 });
 
-test("clamps year inputs to at least 1", async ({ page }) => {
+test("clamps year inputs between 1 and 100", async ({ page }) => {
   await page.getByLabel("MNDA term years").fill("0");
   await expect(page.getByLabel("MNDA term years")).toHaveValue("1");
+  await page.getByLabel("MNDA term years").fill("101");
+  await expect(page.getByLabel("MNDA term years")).toHaveValue("100");
+  await page.getByLabel("Confidentiality years").fill("101");
+  await expect(page.getByLabel("Confidentiality years")).toHaveValue("100");
 });
 
 test("escapes HTML and pipes typed into the form", async ({ page }) => {

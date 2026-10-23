@@ -30,6 +30,11 @@ pnpm-debug.log*
 coverage/
 playwright-report/
 test-results/
+frontend/page-*.png
+frontend/e2e/page-*.png
+frontend/e2e/pdf-repro.pdf
+frontend/e2e/pdf-repro.txt
+frontend/test-output.pdf
 
 # Environment and secrets
 .env
