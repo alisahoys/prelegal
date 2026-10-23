@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import DOMPurify from "isomorphic-dompurify";
-import { marked } from "marked";
 import NdaChat from "@/components/NdaChat";
 import PrototypeSignIn from "@/components/PrototypeSignIn";
 import { applyPatch, currentDataForChat, sendChatTurn, type ChatMessage, type ChatTemplate, type FieldPath } from "@/lib/chat";
 import { buildDocument, defaultNdaData, type NdaData, type Party } from "@/lib/nda";
+import { markdownForDownload, renderMarkdown } from "@/lib/render-markdown";
 
 type Conflict = { path: FieldPath; value: string | number };
 
@@ -87,11 +86,7 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
   }, []);
 
   const isBrowser = useSyncExternalStore(() => () => {}, () => true, () => false);
-  const html = isBrowser ? DOMPurify.sanitize(marked.parse(markdown, { async: false }), {
-    ALLOWED_TAGS: ["a", "b", "blockquote", "br", "code", "dd", "del", "div", "dl", "dt", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "li", "ol", "p", "pre", "span", "strong", "table", "tbody", "td", "th", "thead", "tr", "ul"],
-    ALLOWED_ATTR: ["class", "href", "id", "title"],
-    ALLOW_DATA_ATTR: false,
-  }) : "";
+  const html = isBrowser ? renderMarkdown(markdown) : "";
 
   function update<K extends keyof NdaData>(key: K, value: NdaData[K]) {
     commitData((current) => ({ ...current, [key]: value }));
@@ -177,7 +172,7 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
   }
 
   function downloadMarkdown() {
-    const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown" }));
+    const url = URL.createObjectURL(new Blob([markdownForDownload(markdown)], { type: "text/markdown" }));
     const a = document.createElement("a");
     a.href = url;
     a.download = selectedTemplate.filename.split("/").at(-1)!;

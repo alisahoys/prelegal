@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 
 async function signIn(page: Page) {
@@ -55,6 +56,54 @@ test("renders every catalog template with its matching editor", async ({ page })
       await expect(page.getByLabel("Agreement Markdown")).toBeVisible();
       await expect(page.locator("#nda-preview")).toContainText(option.name.split(" (")[0]);
     }
+  }
+});
+
+test("shows clean template text and nested legal clauses for all templates", async ({ page }) => {
+  await signIn(page);
+  const selector = page.getByLabel("Document template");
+  const options = await selector.locator("option").evaluateAll((elements) => (elements as HTMLOptionElement[]).map((element) => element.value));
+  for (const id of options) {
+    await selector.selectOption(id);
+    const preview = page.locator("#nda-preview");
+    if (id === "mutual-nda-standard-terms") {
+      await expect(preview).not.toContainText(/<(?:span|label)\b|\*\*/);
+      continue;
+    }
+    const visibleText = await preview.innerText();
+    expect(visibleText).not.toMatch(/<(?:span|label)\b|\*\*/);
+    await expect(preview.locator("pre")).toHaveCount(0);
+  }
+
+  await selector.selectOption("mutual-nda-cover-page");
+  const coverPage = await page.locator("#nda-preview").innerText();
+  expect(coverPage).toContain("☒ Expires");
+  expect(coverPage).toContain("☐ Continues until terminated");
+
+  await selector.selectOption("partnership-agreement");
+  const partnership = page.locator("#nda-preview");
+  expect(await partnership.locator("ol ol").count()).toBeGreaterThan(0);
+  await expect(partnership.locator("mark").first()).toContainText("Obligations");
+  await expect(partnership.getByRole("heading", { name: /Cooperation/ })).toBeVisible();
+
+  await selector.selectOption("data-processing-agreement");
+  const dpa = page.locator("#nda-preview");
+  await expect(dpa.locator("ol ol ol")).toHaveCount(1);
+  await expect(dpa.locator("mark").first()).toContainText("Customer");
+});
+
+test("captures preview screenshots and printable PDFs for all catalog templates", async ({ page }) => {
+  await signIn(page);
+  const selector = page.getByLabel("Document template");
+  const options = await selector.locator("option").evaluateAll((elements) => (elements as HTMLOptionElement[]).map((element) => ({ id: element.value, name: element.textContent ?? "" })));
+  for (const option of options) {
+    await selector.selectOption(option.id);
+    const preview = page.locator("#nda-preview");
+    await expect(preview).toBeVisible();
+    await preview.screenshot({ path: `test-results/template-${option.id}-preview.png`, animations: "disabled" });
+    const pdf = await page.pdf({ printBackground: true, preferCSSPageSize: true });
+    expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+    await writeFile(`test-results/template-${option.id}.pdf`, pdf);
   }
 });
 
