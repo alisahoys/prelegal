@@ -5,6 +5,9 @@ const preview = (page: Page) => page.locator("#nda-preview");
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
+  await page.getByLabel("Email").fill("prototype@example.test");
+  await page.getByLabel("Password").fill("prototype-password");
+  await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Mutual NDA Creator" })).toBeVisible();
 });
 
