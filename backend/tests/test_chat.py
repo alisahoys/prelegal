@@ -154,6 +154,100 @@ def test_updates_only_known_fields_for_selected_template(client, monkeypatch):
     assert "templateBody" not in context
 
 
+def test_logs_redacted_sample_for_wrong_workflow_updates(client, monkeypatch, caplog):
+    configured(monkeypatch)
+    response_json = json.dumps({
+        "reply": "private user answer",
+        "updates": None,
+        "fieldUpdates": [{"field": "Company", "value": "private field answer"}],
+        "suggestions": [],
+        "needsMoreInformation": True,
+        "nextQuestion": "private next question",
+    })
+    monkeypatch.setattr(ai, "acompletion", AsyncMock(return_value=fake_completion(response_json)))
+    with caplog.at_level(logging.WARNING, logger="app.ai"):
+        response = client.post("/api/nda/chat", json=payload())
+    assert response.status_code == 200
+    assert "AI provider returned generic updates for an NDA template; dropping them" in caplog.text
+    assert response.json()["reply"] == "private user answer"
+    assert response.json()["updates"] is None
+    assert response.json()["fieldUpdates"] == []
+    assert "private field answer" not in caplog.text
+    assert "private next question" not in caplog.text
+
+
+def test_drops_invalid_field_updates_and_suggestions_but_returns_reply(client, monkeypatch, caplog):
+    configured(monkeypatch)
+    body = payload()
+    body.update(currentTemplateId="partnership-agreement", currentData=None)
+    body["currentFields"] = [{"field": field, "value": ""} for field in template_fields("templates/Partnership-Agreement.md")]
+    field_updates = [
+        {"field": "Company", "value": "Acme"},
+        {"field": "Invented Field", "value": "Ignored"},
+        {"field": "Company", "value": "Duplicate"},
+    ]
+    suggestions = [
+        {"templateId": "design-partner-agreement", "reason": "Possible alternative."},
+        {"templateId": "not-in-catalog", "reason": "Invalid option."},
+        {"templateId": "design-partner-agreement", "reason": "Duplicate option."},
+    ]
+    response_json = json.dumps({
+        "reply": "I entered the company and need one more detail.",
+        "updates": None,
+        "fieldUpdates": field_updates,
+        "suggestions": suggestions,
+        "needsMoreInformation": True,
+        "nextQuestion": "What happens if payment is late?",
+    })
+    monkeypatch.setattr(ai, "acompletion", AsyncMock(return_value=fake_completion(response_json)))
+
+    with caplog.at_level(logging.WARNING, logger="app.ai"):
+        response = client.post("/api/nda/chat", json=body)
+
+    assert response.status_code == 200
+    assert response.json()["reply"] == "I entered the company and need one more detail."
+    assert response.json()["fieldUpdates"] == [{"field": "Company", "value": "Acme"}]
+    assert response.json()["suggestions"] == [{"templateId": "design-partner-agreement", "reason": "Possible alternative."}]
+    assert caplog.text.count("dropping it") == 4
+
+
+def test_drops_nda_patch_for_non_nda_template_and_returns_reply(client, monkeypatch, caplog):
+    configured(monkeypatch)
+    body = payload()
+    body.update(currentTemplateId="partnership-agreement", currentData=None)
+    body["currentFields"] = [{"field": field, "value": ""} for field in template_fields("templates/Partnership-Agreement.md")]
+    nda_updates = {
+        "purpose": "wrong workflow",
+        "effectiveDate": None,
+        "mndaTermType": None,
+        "mndaTermYears": None,
+        "confidentialityType": None,
+        "confidentialityYears": None,
+        "governingLaw": None,
+        "jurisdiction": None,
+        "party1": None,
+        "party2": None,
+    }
+    response_json = json.dumps({
+        "reply": "I entered the company and have one follow-up.",
+        "updates": nda_updates,
+        "fieldUpdates": [{"field": "Company", "value": "Acme"}],
+        "suggestions": [],
+        "needsMoreInformation": True,
+        "nextQuestion": "What will the parties do together?",
+    })
+    monkeypatch.setattr(ai, "acompletion", AsyncMock(return_value=fake_completion(response_json)))
+
+    with caplog.at_level(logging.WARNING, logger="app.ai"):
+        response = client.post("/api/nda/chat", json=body)
+
+    assert response.status_code == 200
+    assert response.json()["reply"] == "I entered the company and have one follow-up."
+    assert response.json()["updates"] is None
+    assert response.json()["fieldUpdates"] == [{"field": "Company", "value": "Acme"}]
+    assert "AI provider returned an NDA update for a non-NDA template; dropping it" in caplog.text
+
+
 def test_rejects_modifications_and_bad_history_roles(client, monkeypatch):
     configured(monkeypatch)
     body = payload()
@@ -200,14 +294,28 @@ def test_provider_errors_are_logged_with_secret_redacted(client, monkeypatch, ca
     assert "test-key" not in caplog.text
 
 
-def test_rejects_invalid_structured_response_and_logs_reason(client, monkeypatch, caplog):
+def test_logs_redacted_sample_for_invalid_provider_json(client, monkeypatch, caplog):
     configured(monkeypatch)
+    body = payload()
+    body.update(currentTemplateId="partnership-agreement", currentData=None)
+    body["currentFields"] = [{"field": field, "value": ""} for field in template_fields("templates/Partnership-Agreement.md")]
+    response_json = json.dumps({
+        "reply": "private user answer",
+        "updates": None,
+        "fieldUpdates": [{"field": "Invented Field", "value": "private field answer"}],
+        "suggestions": [],
+        "needsMoreInformation": True,
+        "nextQuestion": "private next question",
+    })
     monkeypatch.setattr(ai, "acompletion", AsyncMock(return_value=fake_completion("not json")))
     with caplog.at_level(logging.ERROR, logger="app.ai"):
-        response = client.post("/api/nda/chat", json=payload())
+        response = client.post("/api/nda/chat", json=body)
     assert response.status_code == 502
-    assert "ValidationError" in caplog.text
+    assert "JSONDecodeError" in caplog.text
+    assert "non-JSON response redacted; 8 characters" in caplog.text
     assert "not json" not in caplog.text
+    assert "private user answer" not in caplog.text
+    assert "private field answer" not in caplog.text
 
 
 def test_response_requires_follow_up_question_when_information_is_needed():
