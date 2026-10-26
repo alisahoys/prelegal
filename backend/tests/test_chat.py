@@ -68,6 +68,7 @@ async def test_litellm_uses_openrouter_model_fallbacks_and_structured_output(mon
     assert args["model"] == "openrouter/primary:free"
     assert args["models"] == ["fallback-one:free", "fallback-two:free"]
     assert args["max_tokens"] == 3000
+    assert args["timeout"] == 75
     assert args["response_format"]["json_schema"]["strict"] is True
     assert args["messages"][-1]["content"].find('"currentFields": []') >= 0
     schema = args["response_format"]["json_schema"]["schema"]
@@ -276,11 +277,13 @@ def test_rate_limit_and_timeout_are_safely_mapped(client, monkeypatch, caplog):
         monkeypatch.setattr(ai, "acompletion", AsyncMock(side_effect=RateLimitError("private detail", "model", "request")))
         assert client.post("/api/nda/chat", json=payload()).status_code == 429
 
-        monkeypatch.setattr(ai, "acompletion", AsyncMock(side_effect=Timeout("private detail", "model", "provider")))
+        caplog.clear()
+        monkeypatch.setattr(ai, "acompletion", AsyncMock(side_effect=Timeout("timeout detail", "model", "provider")))
         response = client.post("/api/nda/chat", json=payload())
     assert response.status_code == 504
-    assert "private detail" not in response.text
-    assert "private detail" in caplog.text
+    assert response.json()["detail"] == "The AI took too long to respond. Please try again."
+    assert "timeout detail" not in response.text
+    assert "timeout detail" in caplog.text
     assert "test-key" not in caplog.text
 
 

@@ -135,7 +135,7 @@ async def complete_chat(request: ChatRequest) -> ChatResponse:
                 },
             },
             temperature=0.2,
-            timeout=45,
+            timeout=75,
             max_tokens=3000,
         )
     except Exception as exc:

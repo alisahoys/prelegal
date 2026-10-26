@@ -37,6 +37,6 @@ async def nda_chat(request: ChatRequest) -> ChatResponse:
             detail="The free AI models are temporarily rate-limited. Your draft is unchanged; try again or continue editing manually.",
         ) from None
     except AITimeoutError:
-        raise HTTPException(status_code=504, detail="The AI request timed out. Your draft is unchanged; please try again.") from None
+        raise HTTPException(status_code=504, detail="The AI took too long to respond. Please try again.") from None
     except AIProviderError:
         raise HTTPException(status_code=502, detail="The AI service could not complete this request. Your draft is unchanged; please try again.") from None
