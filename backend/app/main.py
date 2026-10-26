@@ -29,8 +29,8 @@ def health() -> dict[str, str]:
 async def nda_chat(request: ChatRequest) -> ChatResponse:
     try:
         return await complete_chat(request)
-    except AIConfigurationError:
-        raise HTTPException(status_code=503, detail="AI chat is not configured.") from None
+    except AIConfigurationError as exc:
+        raise HTTPException(status_code=503, detail="AI chat is not configured.") from exc
     except AIRateLimitError:
         raise HTTPException(
             status_code=429,

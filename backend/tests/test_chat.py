@@ -1,4 +1,5 @@
 import json
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -63,6 +64,7 @@ async def test_litellm_uses_openrouter_model_fallbacks_and_structured_output(mon
     args = completion.await_args.kwargs
     assert args["model"] == "openrouter/primary:free"
     assert args["models"] == ["fallback-one:free", "fallback-two:free"]
+    assert args["max_tokens"] == 3000
     assert args["response_format"]["json_schema"]["strict"] is True
     schema = args["response_format"]["json_schema"]["schema"]
     assert "modifications" not in json.dumps(schema)
@@ -88,12 +90,14 @@ def test_returns_validated_response(client, monkeypatch):
     }
 
 
-def test_requires_free_primary_and_two_fallbacks(client, monkeypatch):
+def test_requires_free_primary_and_two_distinct_fallbacks(client, monkeypatch, caplog):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setenv("OPENROUTER_MODEL", "paid-model")
-    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "one:free,two:free")
-    response = client.post("/api/nda/chat", json=payload())
+    monkeypatch.setenv("OPENROUTER_MODEL", "primary:free")
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "primary:free,second:free")
+    with caplog.at_level(logging.ERROR, logger="app.ai"):
+        response = client.post("/api/nda/chat", json=payload())
     assert response.status_code == 503
+    assert "distinct" in caplog.text
 
 
 def test_rejects_modifications_and_bad_history_roles(client, monkeypatch):
@@ -117,15 +121,37 @@ def test_rejects_modifications_and_bad_history_roles(client, monkeypatch):
     assert client.post("/api/nda/chat", json=body).status_code == 200
 
 
-def test_rate_limit_and_timeout_are_safely_mapped(client, monkeypatch):
+def test_rate_limit_and_timeout_are_safely_mapped(client, monkeypatch, caplog):
     configured(monkeypatch)
-    monkeypatch.setattr(ai, "acompletion", AsyncMock(side_effect=RateLimitError("private detail", "model", "request")))
-    assert client.post("/api/nda/chat", json=payload()).status_code == 429
+    with caplog.at_level(logging.ERROR, logger="app.ai"):
+        monkeypatch.setattr(ai, "acompletion", AsyncMock(side_effect=RateLimitError("private detail", "model", "request")))
+        assert client.post("/api/nda/chat", json=payload()).status_code == 429
 
-    monkeypatch.setattr(ai, "acompletion", AsyncMock(side_effect=Timeout("private detail", "model", "provider")))
-    response = client.post("/api/nda/chat", json=payload())
+        monkeypatch.setattr(ai, "acompletion", AsyncMock(side_effect=Timeout("private detail", "model", "provider")))
+        response = client.post("/api/nda/chat", json=payload())
     assert response.status_code == 504
     assert "private detail" not in response.text
+    assert "private detail" in caplog.text
+    assert "test-key" not in caplog.text
+
+
+def test_provider_errors_are_logged_with_secret_redacted(client, monkeypatch, caplog):
+    configured(monkeypatch)
+    monkeypatch.setattr(ai, "acompletion", AsyncMock(side_effect=RuntimeError("bad key test-key")))
+    with caplog.at_level(logging.ERROR, logger="app.ai"):
+        response = client.post("/api/nda/chat", json=payload())
+    assert response.status_code == 502
+    assert "bad key [REDACTED]" in caplog.text
+    assert "test-key" not in caplog.text
+
+
+def test_rejects_invalid_structured_response_and_logs_reason(client, monkeypatch, caplog):
+    configured(monkeypatch)
+    monkeypatch.setattr(ai, "acompletion", AsyncMock(return_value=fake_completion("not json")))
+    with caplog.at_level(logging.ERROR, logger="app.ai"):
+        response = client.post("/api/nda/chat", json=payload())
+    assert response.status_code == 502
+    assert "JSON" in caplog.text or "json" in caplog.text
 
 
 def test_response_requires_follow_up_question_when_information_is_needed():

@@ -24,7 +24,8 @@ export async function POST(request: Request) {
     }
     const text = messages[response.status === 429 ? 0 : response.status === 504 ? 1 : response.status === 503 ? 3 : 2];
     return NextResponse.json({ detail: text }, { status: response.status });
-  } catch {
+  } catch (error) {
+    console.error("Chat API proxy request failed:", error instanceof Error ? error.message : String(error));
     return NextResponse.json(
       { detail: "The AI service could not be reached. Your draft is unchanged; please try again." },
       { status: 502 },

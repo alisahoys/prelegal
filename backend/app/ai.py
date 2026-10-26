@@ -1,5 +1,7 @@
 import json
+import logging
 import os
+import re
 
 import litellm
 from litellm import acompletion
@@ -8,6 +10,8 @@ from pydantic import ValidationError
 from app.catalog import catalog_by_id
 from app.prompts import SYSTEM_PROMPT
 from app.schemas import ChatRequest, ChatResponse
+
+logger = logging.getLogger(__name__)
 
 
 class AIConfigurationError(Exception):
@@ -28,15 +32,27 @@ class AITimeoutError(Exception):
 
 def _models() -> tuple[str, list[str]]:
     if not os.environ.get("OPENROUTER_API_KEY", "").strip():
-        raise AIConfigurationError
+        raise AIConfigurationError("OPENROUTER_API_KEY is missing")
     primary = os.environ.get("OPENROUTER_MODEL", "").strip()
     fallbacks = [model.strip() for model in os.environ.get("OPENROUTER_FALLBACK_MODELS", "").split(",") if model.strip()]
     models = [primary, *fallbacks]
-    if not primary or len(fallbacks) != 2 or any(not model.endswith(":free") for model in models):
-        raise AIConfigurationError
+    if not primary:
+        raise AIConfigurationError("OPENROUTER_MODEL is missing")
+    if len(fallbacks) != 2:
+        raise AIConfigurationError("OPENROUTER_FALLBACK_MODELS must contain exactly two model IDs")
+    if any(not model.endswith(":free") for model in models):
+        raise AIConfigurationError("All configured model IDs must be free models ending in :free")
     if len(set(models)) != len(models):
-        raise AIConfigurationError
+        raise AIConfigurationError("The primary and fallback model IDs must be distinct")
     return primary, fallbacks
+
+
+def _safe_error_details(error: Exception) -> str:
+    details = str(error)
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if api_key:
+        details = details.replace(api_key, "[REDACTED]")
+    return re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+|api[_-]?key\s*[:=]\s*)\S+", r"\1[REDACTED]", details)[:2000]
 
 
 def _messages(request: ChatRequest) -> list[dict[str, str]]:
@@ -62,7 +78,12 @@ def _messages(request: ChatRequest) -> list[dict[str, str]]:
 
 
 async def complete_chat(request: ChatRequest) -> ChatResponse:
-    primary, fallbacks = _models()
+    try:
+        primary, fallbacks = _models()
+    except AIConfigurationError as exc:
+        logger.error("AI chat configuration error: %s", exc)
+        raise
+
     try:
         response = await acompletion(
             model=f"openrouter/{primary}",
@@ -78,9 +99,10 @@ async def complete_chat(request: ChatRequest) -> ChatResponse:
             },
             temperature=0.2,
             timeout=45,
-            max_tokens=1200,
+            max_tokens=3000,
         )
     except Exception as exc:
+        logger.error("AI provider request failed (%s): %s", type(exc).__name__, _safe_error_details(exc))
         if isinstance(exc, litellm.RateLimitError):
             raise AIRateLimitError from None
         if isinstance(exc, litellm.Timeout):
@@ -90,7 +112,7 @@ async def complete_chat(request: ChatRequest) -> ChatResponse:
     try:
         content = response.choices[0].message.content
         if not isinstance(content, str):
-            raise ValueError
+            raise ValueError("response message content is not a string")
         result = ChatResponse.model_validate_json(content)
         allowed_ids = set(catalog_by_id())
         seen: set[str] = set()
@@ -100,7 +122,8 @@ async def complete_chat(request: ChatRequest) -> ChatResponse:
                 suggestions.append(suggestion)
                 seen.add(suggestion.templateId)
         if request.currentData is None and result.updates and result.updates.model_dump(exclude_none=True):
-            raise ValueError
+            raise ValueError("provider returned NDA field updates for a non-NDA template")
         return result.model_copy(update={"suggestions": suggestions})
     except (IndexError, AttributeError, TypeError, ValueError, ValidationError):
+        logger.exception("AI provider returned an invalid chat response")
         raise AIProviderError from None
