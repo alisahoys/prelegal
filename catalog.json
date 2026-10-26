@@ -8,7 +8,7 @@
   },
   {
     "id": "mutual-nda-cover-page",
-    "editor": "markdown",
+    "editor": "nda",
     "name": "Mutual Non-Disclosure Agreement (Cover Page)",
     "description": "Cover page capturing the deal-specific terms of the Common Paper Mutual NDA.",
     "filename": "templates/Mutual-NDA-coverpage.md"

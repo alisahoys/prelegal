@@ -27,14 +27,15 @@ describe("chat field patching", () => {
 
   it("sends template context and never the template body", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
-      reply: "That template can be edited manually.", updates: null, suggestions: [], needsMoreInformation: false, nextQuestion: null,
+      reply: "I can help fill in these terms.", updates: null, fieldUpdates: [], suggestions: [], needsMoreInformation: false, nextQuestion: null,
     }), { status: 200, headers: { "content-type": "application/json" } }));
     await sendChatTurn("I need a DPA", [{ role: "assistant", content: "Consider this option.", suggestions: [{ templateId: "data-processing-agreement", reason: "Relevant." }] }], {
-      id: "data-processing-agreement", name: "Data Processing Agreement", description: "DPA", editor: "markdown",
-    }, null);
+      id: "data-processing-agreement", name: "Data Processing Agreement", description: "DPA", editor: "markdown", fields: ["Customer", "Processor"],
+    }, null, [{ field: "Customer", value: "Acme" }, { field: "Processor", value: "" }]);
     const body = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
     expect(body.currentTemplateId).toBe("data-processing-agreement");
     expect(body.currentData).toBeNull();
+    expect(body.currentFields).toEqual([{ field: "Customer", value: "Acme" }, { field: "Processor", value: "" }]);
     expect(body.history).toEqual([{ role: "assistant", content: "Consider this option." }]);
     expect(body).not.toHaveProperty("template");
     fetchSpy.mockRestore();

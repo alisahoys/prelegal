@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { markdownForDownload, renderMarkdown } from "./render-markdown";
-import { formatTemplateMarkdown } from "./template-markdown";
+import { extractTemplateFields, fillTemplateMarkdown, formatTemplateMarkdown } from "./template-markdown";
 
 describe("legal template Markdown", () => {
   it("formats trusted headings, clauses, nested lettered clauses and terms", () => {
@@ -37,6 +37,49 @@ describe("legal template Markdown", () => {
 
   it("keeps the edited value inside a highlighted term", () => {
     expect(renderMarkdown("The term is ==Edited Customer==.")).toContain("<mark>Edited Customer</mark>");
+  });
+
+  it("extracts unique linked terms in source order from all catalog templates", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const catalog = JSON.parse(readFileSync(resolve(process.cwd(), "../catalog.json"), "utf8")) as { filename: string }[];
+    for (const { filename } of catalog) {
+      const source = readFileSync(resolve(process.cwd(), "..", filename), "utf8");
+      const fields = extractTemplateFields(source);
+      expect(new Set(fields).size, filename).toBe(fields.length);
+      expect(fields, filename).toEqual(fields.filter((field, index) => fields.indexOf(field) === index));
+    }
+    const partnership = readFileSync(resolve(process.cwd(), "../templates/Partnership-Agreement.md"), "utf8");
+    expect(extractTemplateFields(partnership).slice(0, 3)).toEqual(["Obligations", "Payment Process", "Payment Schedule"]);
+  });
+
+  it("fills every matching term while preserving blank highlights and escaping user text", () => {
+    const source = '<span class="keyterms_link">Customer</span> and <span class="keyterms_link">Customer</span>; <span class="businessterms_link">Region</span>.';
+    const filled = fillTemplateMarkdown(source, { Customer: "Acme [click](javascript:alert(1)) <img> ==x==", Region: "" });
+    const html = renderMarkdown(filled);
+    expect((html.match(/<mark>/g) ?? [])).toHaveLength(3);
+    expect(html).toContain("Acme");
+    expect(html).toContain("[click](javascript:alert(1))");
+    expect(html).not.toContain("&amp;#91;");
+    expect(html).not.toContain("<a href=");
+    expect(html).not.toContain("<img>");
+    expect(html).toContain("Region");
+    expect(filled).toContain("==Region==");
+  });
+
+  it("renders backslashes, script tags, and Markdown emphasis as literal field text", () => {
+    const source = '<span class="keyterms_link">Value</span>';
+    const cases = [
+      { value: "\\", text: "\\" },
+      { value: "<script>alert(1)</script>", text: "&lt;script&gt;alert(1)&lt;/script&gt;" },
+      { value: "**bold**", text: "**bold**" },
+    ];
+
+    for (const { value, text } of cases) {
+      const html = renderMarkdown(fillTemplateMarkdown(source, { Value: value }));
+      expect(html).toContain(`<mark>${text}</mark>`);
+      expect(html).not.toMatch(/<(?:script|strong|a|img)\b/i);
+    }
   });
 
   it("exports highlighted terms as standard Markdown emphasis", () => {

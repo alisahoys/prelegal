@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import NdaCreator from "@/components/NdaCreator";
-import { formatTemplateMarkdown } from "@/lib/template-markdown";
+import { extractTemplateFields, formatTemplateMarkdown } from "@/lib/template-markdown";
 
 async function loadTemplates() {
   "use cache";
@@ -16,6 +16,8 @@ async function loadTemplates() {
     const markdown = await readFile(path.join(process.cwd(), "..", template.filename), "utf8");
     return {
       ...template,
+      sourceMarkdown: markdown,
+      fields: extractTemplateFields(markdown),
       markdown: template.editor === "nda" ? markdown : formatTemplateMarkdown(markdown),
     };
   }));

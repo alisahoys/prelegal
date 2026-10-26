@@ -64,7 +64,7 @@ function confidentialityText(d: NdaData) {
     : "in perpetuity";
 }
 
-function coverPage(d: NdaData) {
+export function buildCoverPage(d: NdaData) {
   const row = (label: string, f: (p: Party) => string) =>
     `| ${label} | ${f(d.party1)} | ${f(d.party2)} |`;
   return `# Mutual Non-Disclosure Agreement
@@ -128,5 +128,5 @@ function standardTerms(template: string, d: NdaData) {
 }
 
 export function buildDocument(template: string, d: NdaData) {
-  return `${coverPage(d)}\n---\n\n${standardTerms(template, d)}`;
+  return `${buildCoverPage(d)}\n---\n\n${standardTerms(template, d)}`;
 }

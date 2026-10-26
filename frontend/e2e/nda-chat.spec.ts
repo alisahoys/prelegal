@@ -14,7 +14,7 @@ test("requires consent and applies AI suggestions without overwriting manual edi
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ reply: "I found the purpose.", updates: { purpose: "Evaluating a partnership", governingLaw: "Delaware" }, suggestions: [], needsMoreInformation: true, nextQuestion: "What state should govern?" }),
+      body: JSON.stringify({ reply: "I found the purpose.", updates: { purpose: "Evaluating a partnership", governingLaw: "Delaware" }, fieldUpdates: [], suggestions: [], needsMoreInformation: true, nextQuestion: "What state should govern?" }),
     });
   });
   await signIn(page);
@@ -46,6 +46,7 @@ test("sends clean assistant history on follow-up turns", async ({ page }) => {
       body: JSON.stringify({
         reply: turn === 1 ? "What state should govern?" : "Thanks, I have what I need.",
         updates: null,
+        fieldUpdates: [],
         suggestions: turn === 1 ? [{ templateId: "data-processing-agreement", reason: "Review this alternative." }] : [],
         needsMoreInformation: turn === 1,
         nextQuestion: turn === 1 ? "What state should govern?" : null,
@@ -86,7 +87,7 @@ test("ignores a pending response after sign-out", async ({ page }) => {
   complete({
     status: 200,
     contentType: "application/json",
-    body: JSON.stringify({ reply: "Late response", updates: { purpose: "Stale purpose" }, suggestions: [], needsMoreInformation: false, nextQuestion: null }),
+    body: JSON.stringify({ reply: "Late response", updates: { purpose: "Stale purpose" }, fieldUpdates: [], suggestions: [], needsMoreInformation: false, nextQuestion: null }),
   });
   await expect(page.getByLabel("Purpose")).toHaveValue("Evaluating whether to enter into a business relationship with the other party.");
   await expect(page.getByText("Late response")).toHaveCount(0);

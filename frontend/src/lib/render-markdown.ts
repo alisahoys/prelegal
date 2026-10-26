@@ -11,6 +11,10 @@ function escapeHtml(value: string) {
   })[character]!);
 }
 
+function unescapeMarkdownLiteral(value: string) {
+  return value.replace(/\\(.)/g, "$1");
+}
+
 const parser = new Marked({
   gfm: true,
   extensions: [{
@@ -18,12 +22,12 @@ const parser = new Marked({
     level: "inline",
     start: (source) => source.indexOf("==") >= 0 ? source.indexOf("==") : undefined,
     tokenizer(source) {
-      const match = /^==([^=\n]+)==/.exec(source);
+      const match = /^==((?:\\.|[^=\n])+)==/.exec(source);
       return match ? { type: "termHighlight", raw: match[0], text: match[1] } : undefined;
     },
     renderer(token) {
       const text = (token as Tokens.Generic & { text: string }).text;
-      return `<mark>${escapeHtml(text)}</mark>`;
+      return `<mark>${escapeHtml(unescapeMarkdownLiteral(text))}</mark>`;
     },
   }],
   renderer: {
@@ -53,7 +57,7 @@ function normalizeListMarkers(markdown: string) {
 }
 
 export function markdownForDownload(markdown: string) {
-  return markdown.replace(/==([^=\n]+)==/g, "**$1**");
+  return markdown.replace(/==((?:\\.|[^=\n])+)==/g, "**$1**");
 }
 
 export function renderMarkdown(markdown: string) {

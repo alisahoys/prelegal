@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildDocument, defaultNdaData, type NdaData } from "./nda";
+import { buildCoverPage, buildDocument, defaultNdaData, type NdaData } from "./nda";
 
 const template = readFileSync(resolve(__dirname, "../../../templates/Mutual-NDA.md"), "utf8");
 
@@ -28,6 +28,13 @@ describe("buildDocument", () => {
     expect(doc).toContain("Governing Law: [Governing Law]");
     expect(doc).toContain("Jurisdiction: [Jurisdiction]");
     expect(doc).toContain("[Effective Date]");
+  });
+
+  it("builds a cover-only document without standard terms", () => {
+    const cover = buildCoverPage(filled());
+    expect(cover).toContain("### Governing Law & Jurisdiction");
+    expect(cover).not.toContain("Standard Terms\n\n1.");
+    expect(cover).not.toContain("<span class=\"coverpage_link\">");
   });
 
   it("formats the effective date", () => {

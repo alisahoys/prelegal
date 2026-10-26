@@ -25,7 +25,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/api/nda/chat", response_model=ChatResponse, response_model_exclude_none=True)
+@app.post("/api/nda/chat", response_model=ChatResponse, response_model_exclude_none=False)
 async def nda_chat(request: ChatRequest) -> ChatResponse:
     try:
         return await complete_chat(request)

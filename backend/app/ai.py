@@ -7,7 +7,7 @@ import litellm
 from litellm import acompletion
 from pydantic import ValidationError
 
-from app.catalog import catalog_by_id
+from app.catalog import catalog_by_id, template_fields
 from app.prompts import SYSTEM_PROMPT
 from app.schemas import ChatRequest, ChatResponse
 
@@ -69,6 +69,8 @@ def _messages(request: ChatRequest) -> list[dict[str, str]]:
                     "catalog": [{"id": entry.id, "name": entry.name, "description": entry.description} for entry in catalog.values()],
                     "selectedTemplate": {"id": template.id, "name": template.name, "editor": template.editor},
                     "currentData": request.currentData.model_dump() if request.currentData else None,
+                    "templateFields": template_fields(template.filename),
+                    "currentFields": [field.model_dump() for field in request.currentFields],
                     "message": request.message,
                 },
                 ensure_ascii=False,
@@ -92,7 +94,7 @@ async def complete_chat(request: ChatRequest) -> ChatResponse:
             response_format={
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "mutual_nda_chat",
+                    "name": "agreement_chat",
                     "schema": ChatResponse.model_json_schema(),
                     "strict": True,
                 },
@@ -114,16 +116,27 @@ async def complete_chat(request: ChatRequest) -> ChatResponse:
         if not isinstance(content, str):
             raise ValueError("response message content is not a string")
         result = ChatResponse.model_validate_json(content)
-        allowed_ids = set(catalog_by_id())
+        catalog = catalog_by_id()
+        template = catalog[request.currentTemplateId]
+        allowed_ids = set(catalog)
         seen: set[str] = set()
         suggestions = []
         for suggestion in result.suggestions:
             if suggestion.templateId in allowed_ids and suggestion.templateId not in seen:
                 suggestions.append(suggestion)
                 seen.add(suggestion.templateId)
-        if request.currentData is None and result.updates and result.updates.model_dump(exclude_none=True):
-            raise ValueError("provider returned NDA field updates for a non-NDA template")
+        if request.currentData is None:
+            if result.updates and result.updates.model_dump(exclude_none=True):
+                raise ValueError("provider returned NDA updates for a non-NDA template")
+            allowed_fields = set(template_fields(template.filename))
+            field_names = [item.field for item in result.fieldUpdates]
+            if len(field_names) != len(set(field_names)) or not set(field_names).issubset(allowed_fields):
+                raise ValueError("provider returned unknown or duplicate template fields")
+        elif result.fieldUpdates:
+            raise ValueError("provider returned generic updates for an NDA template")
+        if sum(len(item.value) for item in result.fieldUpdates) > 20_000:
+            raise ValueError("provider returned excessive template field data")
         return result.model_copy(update={"suggestions": suggestions})
-    except (IndexError, AttributeError, TypeError, ValueError, ValidationError):
-        logger.exception("AI provider returned an invalid chat response")
+    except (IndexError, AttributeError, TypeError, ValueError, ValidationError) as exc:
+        logger.error("AI provider returned an invalid chat response (%s)", type(exc).__name__)
         raise AIProviderError from None

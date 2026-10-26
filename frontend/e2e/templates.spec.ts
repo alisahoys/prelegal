@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { extractTemplateFields } from "../src/lib/template-markdown";
 
 async function signIn(page: Page) {
   await page.goto("/");
@@ -10,17 +13,16 @@ async function signIn(page: Page) {
 
 const consent = "I understand and agree to send this information for AI assistance.";
 
-test("selects templates, preserves edits, previews and downloads the current draft", async ({ page }) => {
+test("preserves generated field values across templates and exports the filled draft", async ({ page }) => {
   await signIn(page);
   const selector = page.getByLabel("Document template");
   await selector.selectOption("data-processing-agreement");
-  await expect(page.getByLabel("Agreement Markdown")).toContainText("Data Processing Agreement");
-  await page.getByLabel("Agreement Markdown").fill("# My DPA\n\nEdited terms.");
-  await expect(page.locator("#nda-preview")).toContainText("Edited terms.");
+  await page.getByLabel("Customer", { exact: true }).fill("Acme");
+  await expect(page.locator("#nda-preview mark").filter({ hasText: "Acme" }).first()).toBeVisible();
   await selector.selectOption("service-level-agreement");
-  await page.getByLabel("Agreement Markdown").fill("# My SLA");
+  await page.getByLabel("Customer", { exact: true }).fill("Other Customer");
   await selector.selectOption("data-processing-agreement");
-  await expect(page.getByLabel("Agreement Markdown")).toHaveValue("# My DPA\n\nEdited terms.");
+  await expect(page.getByLabel("Customer", { exact: true })).toHaveValue("Acme");
 
   const [download] = await Promise.all([
     page.waitForEvent("download"),
@@ -30,31 +32,37 @@ test("selects templates, preserves edits, previews and downloads the current dra
   const stream = await download.createReadStream();
   let contents = "";
   for await (const chunk of stream!) contents += chunk.toString();
-  expect(contents).toBe("# My DPA\n\nEdited terms.");
+  expect(contents).toContain("**Acme**");
 });
 
-test("sanitizes manually edited Markdown before preview", async ({ page }) => {
+test("renders hostile field values literally without HTML, links, or formatting", async ({ page }) => {
   await signIn(page);
   await page.getByLabel("Document template").selectOption("ai-addendum");
-  await page.getByLabel("Agreement Markdown").fill('# Safe\n\n<img src="x" onerror="window.__xss = true"><script>window.__xss = true</script>[bad](javascript:window.__xss = true)');
-  await expect(page.locator("#nda-preview h1")).toHaveText("Safe");
-  await expect(page.locator('#nda-preview img, #nda-preview script, #nda-preview a[href^="javascript:"]')).toHaveCount(0);
-  expect(await page.evaluate(() => (window as Window & { __xss?: boolean }).__xss)).toBeUndefined();
+  const customer = page.getByLabel("Customer", { exact: true });
+  for (const value of ["\\", "<script>alert(1)</script>", "**bold**"]) {
+    await customer.fill(value);
+    const mark = page.locator("#nda-preview mark").filter({ hasText: value }).first();
+    await expect(mark).toHaveText(value);
+    expect(await mark.evaluate((element) => element.childElementCount)).toBe(0);
+  }
 });
 
 test("renders every catalog template with its matching editor", async ({ page }) => {
   await signIn(page);
   const selector = page.getByLabel("Document template");
   const options = await selector.locator("option").evaluateAll((elements) => elements.map((element) => ({ id: (element as HTMLOptionElement).value, name: element.textContent ?? "" })));
+  const catalog = JSON.parse(readFileSync(resolve(process.cwd(), "../catalog.json"), "utf8")) as { id: string; filename: string; editor: string }[];
   expect(options).toHaveLength(12);
   for (const option of options) {
     await selector.selectOption(option.id);
-    if (option.id === "mutual-nda-standard-terms") {
+    if (option.id.startsWith("mutual-nda-")) {
       await expect(page.locator("#nda-preview")).toContainText("Mutual Non-Disclosure Agreement");
       await expect(page.getByLabel("Purpose")).toBeVisible();
     } else {
-      await expect(page.getByLabel("Agreement Markdown")).toBeVisible();
+      const fields = extractTemplateFields(readFileSync(resolve(process.cwd(), "..", catalog.find(({ id }) => id === option.id)!.filename), "utf8"));
+      for (const field of fields) await expect(page.getByLabel(field, { exact: true })).toBeVisible();
       await expect(page.locator("#nda-preview")).toContainText(option.name.split(" (")[0]);
+      await expect(page.locator("#nda-preview mark").first()).toBeVisible();
     }
   }
 });
@@ -77,8 +85,8 @@ test("shows clean template text and nested legal clauses for all templates", asy
 
   await selector.selectOption("mutual-nda-cover-page");
   const coverPage = await page.locator("#nda-preview").innerText();
-  expect(coverPage).toContain("☒ Expires");
-  expect(coverPage).toContain("☐ Continues until terminated");
+  expect(coverPage).toContain("1 year from the Effective Date");
+  expect(coverPage).not.toContain("1. Definitions");
 
   await selector.selectOption("partnership-agreement");
   const partnership = page.locator("#nda-preview");
@@ -118,6 +126,7 @@ test("requires explicit confirmation to switch to an AI-suggested template", asy
       body: JSON.stringify({
         reply: "We do not have an employment agreement. A Design Partner Agreement is an alternative, not a legal equivalent.",
         updates: null,
+        fieldUpdates: [],
         suggestions: [{ templateId: "design-partner-agreement", reason: "Closest available catalog option." }],
         needsMoreInformation: true,
         nextQuestion: "Would you like to review this option?",
@@ -133,5 +142,6 @@ test("requires explicit confirmation to switch to an AI-suggested template", asy
   await expect(page.getByLabel("Message")).toBeFocused();
   await page.getByRole("button", { name: "Use Design Partner Agreement" }).click();
   await expect(page.getByLabel("Document template")).toHaveValue("design-partner-agreement");
-  await expect(page.getByLabel("Agreement Markdown")).toContainText("Design Partner Agreement");
+  await expect(page.getByLabel("Partner", { exact: true })).toBeVisible();
+  await expect(page.locator("#nda-preview")).toContainText("Design Partner Agreement");
 });

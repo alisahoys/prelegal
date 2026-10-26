@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import type { ChatMessage, FieldPath, TemplateSuggestion } from "@/lib/chat";
+import type { ChatMessage, TemplateSuggestion } from "@/lib/chat";
 
-type Conflict = { path: FieldPath; value: string | number };
+type Conflict = { path: string; value: string | number; templateId?: string; label?: string };
 
 export default function NdaChat({
   messages,
@@ -47,14 +47,14 @@ export default function NdaChat({
     <section className="chat-panel print:hidden" aria-label="Agreement assistant">
       <h2 className="text-lg font-semibold">Agreement assistant</h2>
       <div className="privacy-note">
-        Chat sends your message and recent conversation to OpenRouter through our server. Only while using the structured Mutual NDA does it also send eligible Mutual NDA fields; manually edited agreement text and MNDA modifications are never sent. Chat is not saved by this prototype; OpenRouter’s data practices may apply. Don’t send information you are not comfortable sharing.
+        Chat sends your message and recent conversation to OpenRouter through our server, along with eligible fields from the selected template. Full agreement text and MNDA modifications are never sent. Chat is not saved by this prototype; OpenRouter’s data practices may apply. Don’t send information you are not comfortable sharing.
       </div>
       <label className="mt-3 flex gap-2 text-sm text-[var(--text)]">
         <input type="checkbox" checked={consent} onChange={(event) => onConsent(event.target.checked)} />
         <span>I understand and agree to send this information for AI assistance.</span>
       </label>
       <div className="chat-messages" aria-live="polite">
-        {messages.length === 0 && <p className="text-sm text-[var(--muted)]">Ask for help choosing a template or filling in the structured Mutual NDA. Other agreements can be edited manually.</p>}
+        {messages.length === 0 && <p className="text-sm text-[var(--muted)]">Ask for help choosing a template or filling in the selected agreement.</p>}
         {messages.map((message, index) => (
           <div key={index} className={message.role === "user" ? "chat-user" : "chat-assistant"}>
             <p><strong>{message.role === "user" ? "You" : "Assistant"}:</strong> {message.content}</p>
@@ -75,7 +75,7 @@ export default function NdaChat({
         <div className="space-y-3" aria-label="Suggestions for manually edited fields">
           {conflicts.map((conflict) => (
             <div className="suggestion" key={conflict.path}>
-              <p className="text-sm">Suggestion for <strong>{conflict.path}</strong>: {conflict.value}</p>
+              <p className="text-sm">Suggestion for <strong>{conflict.label ?? conflict.path}</strong>: {conflict.value}</p>
               <div className="mt-2 flex gap-2">
                 <button className="button-primary" type="button" onClick={() => onResolve(conflict, true)}>Apply suggestion</button>
                 <button className="button-secondary" type="button" onClick={() => onResolve(conflict, false)}>Keep my value</button>

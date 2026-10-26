@@ -14,6 +14,7 @@ RUN uv sync --locked --no-dev
 
 COPY backend/app ./app
 COPY catalog.json /catalog.json
+COPY templates/ /templates/
 ENV PATH="/app/.venv/bin:$PATH" \
     DATABASE_PATH=/tmp/prelegal.sqlite3
 

@@ -2,13 +2,14 @@ import type { NdaData } from "./nda";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string; suggestions?: TemplateSuggestion[] };
 export type TemplateSuggestion = { templateId: string; reason: string };
-export type ChatTemplate = { id: string; name: string; description: string; editor: "nda" | "markdown" };
+export type ChatTemplate = { id: string; name: string; description: string; editor: "nda" | "markdown"; fields: string[] };
 export type PartyPatch = Partial<NdaData["party1"]>;
 export type NdaPatch = Partial<Omit<NdaData, "modifications" | "party1" | "party2">> & {
   party1?: PartyPatch | null;
   party2?: PartyPatch | null;
 };
-export type ChatResponse = { reply: string; updates: NdaPatch | null; suggestions: TemplateSuggestion[]; needsMoreInformation: boolean; nextQuestion: string | null };
+export type FieldUpdate = { field: string; value: string };
+export type ChatResponse = { reply: string; updates: NdaPatch | null; fieldUpdates: FieldUpdate[]; suggestions: TemplateSuggestion[]; needsMoreInformation: boolean; nextQuestion: string | null };
 export type FieldPath =
   | "purpose"
   | "effectiveDate"
@@ -65,17 +66,19 @@ export async function sendChatTurn(
   history: ChatMessage[],
   template: ChatTemplate,
   currentData: Omit<NdaData, "modifications"> | null,
+  currentFields: { field: string; value: string }[],
 ): Promise<ChatResponse> {
   const response = await fetch("/api/nda/chat", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message, history: history.slice(-12).map(({ role, content }) => ({ role, content })), currentTemplateId: template.id, currentData }),
+    body: JSON.stringify({ message, history: history.slice(-12).map(({ role, content }) => ({ role, content })), currentTemplateId: template.id, currentData, currentFields }),
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.detail ?? "The AI request failed. Your draft is unchanged; please try again.");
   if (
     typeof result.reply !== "string" ||
     !(result.updates === null || typeof result.updates === "object") ||
+    !Array.isArray(result.fieldUpdates) ||
     !Array.isArray(result.suggestions) ||
     typeof result.needsMoreInformation !== "boolean" ||
     !(result.nextQuestion === null || typeof result.nextQuestion === "string") ||
