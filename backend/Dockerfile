@@ -9,10 +9,12 @@ ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1
 WORKDIR /app
 
-COPY pyproject.toml uv.lock ./
+COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --locked --no-dev
 
-COPY app ./app
+COPY backend/app ./app
+COPY catalog.json /catalog.json
+COPY templates/ /templates/
 ENV PATH="/app/.venv/bin:$PATH" \
     DATABASE_PATH=/tmp/prelegal.sqlite3
 

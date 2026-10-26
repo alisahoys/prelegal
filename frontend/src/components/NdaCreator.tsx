@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { marked } from "marked";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import NdaChat from "@/components/NdaChat";
 import PrototypeSignIn from "@/components/PrototypeSignIn";
-import { applyPatch, currentDataForChat, sendChatTurn, type ChatMessage, type FieldPath } from "@/lib/chat";
-import { buildDocument, defaultNdaData, type NdaData, type Party } from "@/lib/nda";
+import { applyPatch, currentDataForChat, sendChatTurn, type ChatMessage, type ChatTemplate, type FieldPath } from "@/lib/chat";
+import { buildCoverPage, buildDocument, defaultNdaData, type NdaData, type Party } from "@/lib/nda";
+import { fillTemplateMarkdown } from "@/lib/template-markdown";
+import { markdownForDownload, renderMarkdown } from "@/lib/render-markdown";
 
-type Conflict = { path: FieldPath; value: string | number };
+type Conflict = { path: string; value: string | number; templateId?: string; label?: string };
 
 const input = "form-input";
 
@@ -49,8 +50,15 @@ function setField(data: NdaData, path: FieldPath, value: string | number): NdaDa
   return { ...data, [path]: value } as NdaData;
 }
 
-export default function NdaCreator({ template }: { template: string }) {
+type Template = ChatTemplate & { filename: string; markdown: string; sourceMarkdown: string };
+const NDA_TEMPLATE_ID = "mutual-nda-standard-terms";
+const NDA_COVER_ID = "mutual-nda-cover-page";
+
+export default function NdaCreator({ templates }: { templates: Template[] }) {
   const [data, setData] = useState<NdaData>(defaultNdaData);
+  const [selectedTemplateId, setSelectedTemplateId] = useState(NDA_TEMPLATE_ID);
+  const [fieldDrafts, setFieldDrafts] = useState<Record<string, Record<string, string>>>({});
+  const fieldDraftsRef = useRef(fieldDrafts);
   const dataRef = useRef(data);
   const [signedIn, setSignedIn] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -58,12 +66,18 @@ export default function NdaCreator({ template }: { template: string }) {
   const [consent, setConsent] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const manuallyEdited = useRef(new Set<FieldPath>());
+  const manuallyEdited = useRef(new Set<string>());
   const requestGeneration = useRef(0);
+  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId)!;
+  const isNdaEditor = selectedTemplate.editor === "nda";
+  const markdown = isNdaEditor
+    ? selectedTemplateId === NDA_COVER_ID ? buildCoverPage(data) : buildDocument(selectedTemplate.markdown, data)
+    : fillTemplateMarkdown(selectedTemplate.sourceMarkdown, fieldDrafts[selectedTemplateId] ?? {});
 
   useLayoutEffect(() => {
     dataRef.current = data;
-  }, [data]);
+    fieldDraftsRef.current = fieldDrafts;
+  }, [data, fieldDrafts]);
 
   function commitData(next: NdaData | ((current: NdaData) => NdaData)) {
     const value = typeof next === "function" ? next(dataRef.current) : next;
@@ -76,8 +90,8 @@ export default function NdaCreator({ template }: { template: string }) {
     commitData((current) => current.effectiveDate ? current : { ...current, effectiveDate: new Date().toISOString().slice(0, 10) });
   }, []);
 
-  const markdown = useMemo(() => buildDocument(template, data), [template, data]);
-  const html = useMemo(() => marked.parse(markdown, { async: false }), [markdown]);
+  const isBrowser = useSyncExternalStore(() => () => {}, () => true, () => false);
+  const html = isBrowser ? renderMarkdown(markdown) : "";
 
   function update<K extends keyof NdaData>(key: K, value: NdaData[K]) {
     commitData((current) => ({ ...current, [key]: value }));
@@ -98,20 +112,40 @@ export default function NdaCreator({ template }: { template: string }) {
 
   async function sendMessage(message: string) {
     const generation = requestGeneration.current;
+    const template = selectedTemplate;
+    const currentFields = template.editor === "nda" ? [] : template.fields.map((field) => ({ field, value: fieldDraftsRef.current[template.id]?.[field] ?? "" }));
     setPending(true);
     setError("");
     const previousMessages = messages;
     setMessages((current) => [...current, { role: "user", content: message }]);
     try {
-      const result = await sendChatTurn(message, previousMessages, currentDataForChat(dataRef.current));
+      const result = await sendChatTurn(message, previousMessages, template, template.editor === "nda" ? currentDataForChat(dataRef.current) : null, currentFields);
       if (generation !== requestGeneration.current) return;
-      const merged = applyPatch(dataRef.current, result.updates, manuallyEdited.current);
-      commitData(merged.data);
-      setConflicts((prior) => [
-        ...prior.filter((conflict) => !merged.conflicts.some((next) => next.path === conflict.path)),
-        ...merged.conflicts,
-      ]);
-      setMessages((current) => [...current, { role: "assistant", content: result.reply }]);
+      if (template.editor === "nda" && result.updates) {
+        const merged = applyPatch(dataRef.current, result.updates, manuallyEdited.current as Set<FieldPath>);
+        commitData(merged.data);
+        setConflicts((prior) => [
+          ...prior.filter((conflict) => !merged.conflicts.some((next) => next.path === conflict.path)),
+          ...merged.conflicts.map((conflict) => ({ ...conflict, label: conflict.path })),
+        ]);
+      } else if (template.editor !== "nda" && result.fieldUpdates.length) {
+        const values = { ...(fieldDraftsRef.current[template.id] ?? {}) };
+        const nextConflicts: Conflict[] = [];
+        for (const update of result.fieldUpdates) {
+          const path = `${template.id}:${update.field}`;
+          if (manuallyEdited.current.has(path)) nextConflicts.push({ path: update.field, value: update.value, templateId: template.id, label: update.field });
+          else values[update.field] = update.value;
+        }
+        const nextDrafts = { ...fieldDraftsRef.current, [template.id]: values };
+        fieldDraftsRef.current = nextDrafts;
+        setFieldDrafts(nextDrafts);
+        setConflicts((prior) => [...prior.filter((conflict) => conflict.templateId !== template.id), ...nextConflicts]);
+      }
+      const suggestions = result.suggestions.filter((suggestion) => templates.some((template) => template.id === suggestion.templateId));
+      const reply = result.needsMoreInformation && result.nextQuestion && !result.reply.includes(result.nextQuestion)
+        ? `${result.reply}\n${result.nextQuestion}`
+        : result.reply;
+      setMessages((current) => [...current, { role: "assistant", content: reply, suggestions }]);
     } catch (reason) {
       if (generation === requestGeneration.current) {
         setError(reason instanceof Error ? reason.message : "The AI request failed. Your draft is unchanged; please try again.");
@@ -121,9 +155,34 @@ export default function NdaCreator({ template }: { template: string }) {
     }
   }
 
+  function selectTemplate(id: string) {
+    if (!templates.some((template) => template.id === id) || id === selectedTemplateId) return;
+    requestGeneration.current += 1;
+    setPending(false);
+    setMessages([]);
+    setError("");
+    setConflicts([]);
+    setSelectedTemplateId(id);
+  }
+
+  function updateTemplateField(field: string, value: string) {
+    const path = `${selectedTemplateId}:${field}`;
+    manuallyEdited.current.add(path);
+    setConflicts((current) => current.filter((conflict) => conflict.templateId !== selectedTemplateId || conflict.path !== field));
+    const nextDrafts = { ...fieldDraftsRef.current, [selectedTemplateId]: { ...(fieldDraftsRef.current[selectedTemplateId] ?? {}), [field]: value } };
+    fieldDraftsRef.current = nextDrafts;
+    setFieldDrafts(nextDrafts);
+  }
+
   function resolveConflict(conflict: Conflict, apply: boolean) {
-    if (apply) commitData((current) => setField(current, conflict.path, conflict.value));
-    setConflicts((current) => current.filter((item) => item.path !== conflict.path));
+    if (apply && conflict.templateId) {
+      const nextDrafts = { ...fieldDraftsRef.current, [conflict.templateId]: { ...(fieldDraftsRef.current[conflict.templateId] ?? {}), [conflict.path]: String(conflict.value) } };
+      fieldDraftsRef.current = nextDrafts;
+      setFieldDrafts(nextDrafts);
+    } else if (apply) {
+      commitData((current) => setField(current, conflict.path as FieldPath, conflict.value));
+    }
+    setConflicts((current) => current.filter((item) => item.path !== conflict.path || item.templateId !== conflict.templateId));
   }
 
   function signOut() {
@@ -132,6 +191,9 @@ export default function NdaCreator({ template }: { template: string }) {
     manuallyEdited.current.clear();
     commitData({ ...defaultNdaData(), effectiveDate: new Date().toISOString().slice(0, 10) });
     setMessages([]);
+    setFieldDrafts({});
+    fieldDraftsRef.current = {};
+    setSelectedTemplateId(NDA_TEMPLATE_ID);
     setConflicts([]);
     setConsent(false);
     setError("");
@@ -139,17 +201,17 @@ export default function NdaCreator({ template }: { template: string }) {
   }
 
   function downloadMarkdown() {
-    const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown" }));
+    const url = URL.createObjectURL(new Blob([markdownForDownload(markdown)], { type: "text/markdown" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = "Mutual-NDA.md";
+    a.download = selectedTemplate.filename.split("/").at(-1)!;
     a.click();
     URL.revokeObjectURL(url);
   }
 
   function downloadPdf() {
     const originalTitle = document.title;
-    document.title = "Mutual-NDA";
+    document.title = selectedTemplate.name.replace(/[^A-Za-z0-9-]+/g, "-");
     window.addEventListener("afterprint", () => { document.title = originalTitle; }, { once: true });
     window.print();
   }
@@ -161,14 +223,22 @@ export default function NdaCreator({ template }: { template: string }) {
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div>
           <p className="text-sm font-semibold uppercase tracking-wide text-[var(--primary)]">Prelegal prototype</p>
-          <h1 className="text-2xl font-semibold">Mutual NDA Creator</h1>
+          <h1 className="text-2xl font-semibold">Agreement Creator</h1>
         </div>
         <button className="button-secondary" type="button" onClick={signOut}>Sign out</button>
       </header>
+      <label className="mb-5 block max-w-xl space-y-1 print:hidden">
+        <span className="text-sm font-medium">Document template</span>
+        <select className={input} value={selectedTemplateId} onChange={(event) => selectTemplate(event.target.value)}>
+          {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+        </select>
+      </label>
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(280px,0.85fr)_minmax(340px,1fr)_minmax(400px,1.2fr)]">
         <NdaChat
           messages={messages}
           conflicts={conflicts}
+          onSelectTemplate={selectTemplate}
+          getTemplateName={(id) => templates.find((template) => template.id === id)?.name}
           consent={consent}
           pending={pending}
           error={error}
@@ -176,8 +246,11 @@ export default function NdaCreator({ template }: { template: string }) {
           onSend={sendMessage}
           onResolve={resolveConflict}
         />
-        <form className="space-y-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 print:hidden" onSubmit={(event) => event.preventDefault()}>
-          <h2 className="text-lg font-semibold">Agreement details</h2>
+        <div className="space-y-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 print:hidden">
+          {isNdaEditor ? <>
+          <h2 className="text-lg font-semibold">{selectedTemplateId === NDA_COVER_ID ? "Mutual NDA Cover Page details" : "Mutual NDA details"}</h2>
+          <p className="text-sm text-[var(--muted)]">{selectedTemplate.description}</p>
+          <p className="text-sm text-[var(--muted)]">{selectedTemplateId === NDA_COVER_ID ? "This structured editor generates the Mutual NDA cover page." : "This structured editor generates the completed Mutual NDA cover page together with these standard terms."}</p>
           <Field label="Purpose" hint="How Confidential Information may be used"><textarea className={input} rows={3} value={data.purpose} onChange={(event) => editField("purpose", event.target.value)} /></Field>
           <Field label="Effective date"><input className={input} type="date" value={data.effectiveDate} onChange={(event) => editField("effectiveDate", event.target.value)} /></Field>
           <fieldset className="space-y-2">
@@ -210,11 +283,21 @@ export default function NdaCreator({ template }: { template: string }) {
           <Field label="MNDA modifications" hint="Optional; this field is not sent to chat"><textarea className={input} rows={3} value={data.modifications} onChange={(event) => update("modifications", event.target.value)} /></Field>
           <PartyFields title="Party 1" party={data.party1} onChange={(field, value) => editParty("party1", field, value)} />
           <PartyFields title="Party 2" party={data.party2} onChange={(field, value) => editParty("party2", field, value)} />
+          </> : <>
+            <h2 className="text-lg font-semibold">{selectedTemplate.name}</h2>
+            <p className="text-sm text-[var(--muted)]">{selectedTemplate.description}</p>
+            <p className="text-sm text-[var(--muted)]">Fill in the highlighted terms. Values update every matching term in the agreement.</p>
+            {selectedTemplate.fields.map((field) => (
+              <Field key={field} label={field}>
+                <input className={input} value={fieldDrafts[selectedTemplateId]?.[field] ?? ""} onChange={(event) => updateTemplateField(field, event.target.value)} />
+              </Field>
+            ))}
+          </>}
           <div className="flex flex-wrap gap-3">
             <button type="button" onClick={downloadPdf} className="button-primary">Print / Save PDF</button>
             <button type="button" onClick={downloadMarkdown} className="button-outline">Download Markdown</button>
           </div>
-        </form>
+        </div>
         <article id="nda-preview" className="nda-preview rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--text)] sm:p-8 print:rounded-none print:border-0 print:p-0" dangerouslySetInnerHTML={{ __html: html }} />
       </div>
     </main>

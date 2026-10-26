@@ -14,7 +14,7 @@ test("requires consent and applies AI suggestions without overwriting manual edi
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ reply: "I found the purpose. What state should govern?", updates: { purpose: "Evaluating a partnership", governingLaw: "Delaware" } }),
+      body: JSON.stringify({ reply: "I found the purpose.", updates: { purpose: "Evaluating a partnership", governingLaw: "Delaware" }, fieldUpdates: [], suggestions: [], needsMoreInformation: true, nextQuestion: "What state should govern?" }),
     });
   });
   await signIn(page);
@@ -25,11 +25,45 @@ test("requires consent and applies AI suggestions without overwriting manual edi
   await page.getByRole("button", { name: "Send to assistant" }).click();
 
   await expect(page.getByLabel("Purpose")).toHaveValue("Evaluating a partnership");
+  await expect(page.getByLabel("Message")).toBeFocused();
+  await expect(page.getByText("What state should govern?")).toBeVisible();
   await expect(page.getByLabel("Governing law")).toHaveValue("My law");
   await expect(page.getByText("Suggestion for governingLaw: Delaware")).toBeVisible();
   await page.getByRole("button", { name: "Apply suggestion" }).click();
   await expect(page.getByLabel("Governing law")).toHaveValue("Delaware");
   await expect(page.locator("#nda-preview")).toContainText("Evaluating a partnership");
+});
+
+test("sends clean assistant history on follow-up turns", async ({ page }) => {
+  const requests: { history: unknown[]; currentTemplateId: string }[] = [];
+  await page.route("**/api/nda/chat", async (route) => {
+    const body = route.request().postDataJSON();
+    requests.push(body);
+    const turn = requests.length;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        reply: turn === 1 ? "What state should govern?" : "Thanks, I have what I need.",
+        updates: null,
+        fieldUpdates: [],
+        suggestions: turn === 1 ? [{ templateId: "data-processing-agreement", reason: "Review this alternative." }] : [],
+        needsMoreInformation: turn === 1,
+        nextQuestion: turn === 1 ? "What state should govern?" : null,
+      }),
+    });
+  });
+  await signIn(page);
+  await page.getByLabel(consent).check();
+  await page.getByLabel("Message").fill("I need help with an agreement.");
+  await page.getByRole("button", { name: "Send to assistant" }).click();
+  await page.getByLabel("Message").fill("Delaware.");
+  await page.getByRole("button", { name: "Send to assistant" }).click();
+
+  await expect(page.getByText("Thanks, I have what I need.")).toBeVisible();
+  expect(requests).toHaveLength(2);
+  expect(requests[1].history).toEqual([{ role: "user", content: "I need help with an agreement." }, { role: "assistant", content: "What state should govern?" }]);
+  expect(requests[1].history[1]).not.toHaveProperty("suggestions");
 });
 
 test("ignores a pending response after sign-out", async ({ page }) => {
@@ -53,7 +87,7 @@ test("ignores a pending response after sign-out", async ({ page }) => {
   complete({
     status: 200,
     contentType: "application/json",
-    body: JSON.stringify({ reply: "Late response", updates: { purpose: "Stale purpose" } }),
+    body: JSON.stringify({ reply: "Late response", updates: { purpose: "Stale purpose" }, fieldUpdates: [], suggestions: [], needsMoreInformation: false, nextQuestion: null }),
   });
   await expect(page.getByLabel("Purpose")).toHaveValue("Evaluating whether to enter into a business relationship with the other party.");
   await expect(page.getByText("Late response")).toHaveCount(0);

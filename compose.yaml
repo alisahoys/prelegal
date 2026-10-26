@@ -10,7 +10,8 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       DATABASE_PATH: /tmp/prelegal.sqlite3
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}

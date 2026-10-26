@@ -25,18 +25,18 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/api/nda/chat", response_model=ChatResponse, response_model_exclude_none=True)
+@app.post("/api/nda/chat", response_model=ChatResponse, response_model_exclude_none=False)
 async def nda_chat(request: ChatRequest) -> ChatResponse:
     try:
         return await complete_chat(request)
-    except AIConfigurationError:
-        raise HTTPException(status_code=503, detail="AI chat is not configured.") from None
+    except AIConfigurationError as exc:
+        raise HTTPException(status_code=503, detail="AI chat is not configured.") from exc
     except AIRateLimitError:
         raise HTTPException(
             status_code=429,
             detail="The free AI models are temporarily rate-limited. Your draft is unchanged; try again or continue editing manually.",
         ) from None
     except AITimeoutError:
-        raise HTTPException(status_code=504, detail="The AI request timed out. Your draft is unchanged; please try again.") from None
+        raise HTTPException(status_code=504, detail="The AI took too long to respond. Please try again.") from None
     except AIProviderError:
         raise HTTPException(status_code=502, detail="The AI service could not complete this request. Your draft is unchanged; please try again.") from None

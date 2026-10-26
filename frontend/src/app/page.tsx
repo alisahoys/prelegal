@@ -1,12 +1,28 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import NdaCreator from "@/components/NdaCreator";
+import { extractTemplateFields, formatTemplateMarkdown } from "@/lib/template-markdown";
 
-async function loadTemplate() {
+async function loadTemplates() {
   "use cache";
-  return readFile(path.join(process.cwd(), "..", "templates", "Mutual-NDA.md"), "utf8");
+  const catalog = JSON.parse(await readFile(path.join(process.cwd(), "..", "catalog.json"), "utf8")) as {
+    id: string;
+    editor: "nda" | "markdown";
+    name: string;
+    description: string;
+    filename: string;
+  }[];
+  return Promise.all(catalog.map(async (template) => {
+    const markdown = await readFile(path.join(process.cwd(), "..", template.filename), "utf8");
+    return {
+      ...template,
+      sourceMarkdown: markdown,
+      fields: extractTemplateFields(markdown),
+      markdown: template.editor === "nda" ? markdown : formatTemplateMarkdown(markdown),
+    };
+  }));
 }
 
 export default async function Home() {
-  return <NdaCreator template={await loadTemplate()} />;
+  return <NdaCreator templates={await loadTemplates()} />;
 }

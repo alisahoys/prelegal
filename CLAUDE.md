@@ -6,7 +6,9 @@ This is a SaaS product to allow users to draft legal agreements based on templat
 
 @catalog.json
 
-Before we start: the initial implementation is a frontend-only prototype that only supports the Mutual NDA document with no AI chat.
+## Current status
+
+PREL-5 added AI chat. PREL-6 expanded the workspace to all 12 catalog templates with guided forms, robust AI response handling, and aligned request timeouts.
 
 ## Development process
 
@@ -16,8 +18,6 @@ When instructed to build a feature:
 2. Develop the feature - do not skip any step from the feature-dev 7 step process
 3. Thoroughly test the feature with unit tests and integration tests and fix any issues
 4. Submit a PR using your github tools
-
-## AI design
 
 ## AI design
 

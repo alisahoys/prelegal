@@ -1,7 +1,9 @@
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.catalog import catalog_by_id, template_fields
 
 
 class StrictModel(BaseModel):
@@ -40,10 +42,38 @@ class ChatMessage(StrictModel):
     content: str = Field(min_length=1, max_length=2000)
 
 
+class FieldContext(StrictModel):
+    field: str = Field(min_length=1, max_length=200)
+    value: str = Field(max_length=2000)
+
+
+class FieldUpdate(StrictModel):
+    field: str = Field(min_length=1, max_length=200)
+    value: str = Field(max_length=2000)
+
+
 class ChatRequest(StrictModel):
     message: str = Field(min_length=1, max_length=2000)
     history: list[ChatMessage] = Field(max_length=12)
-    currentData: CurrentData
+    currentTemplateId: str
+    currentData: CurrentData | None
+    currentFields: list[FieldContext] = Field(max_length=100)
+
+    @model_validator(mode="after")
+    def fields_match_template(self):
+        entry = catalog_by_id().get(self.currentTemplateId)
+        if entry is None:
+            raise ValueError("Unknown template ID.")
+        allowed = set(template_fields(entry.filename))
+        fields = [item.field for item in self.currentFields]
+        if len(fields) != len(set(fields)) or not set(fields).issubset(allowed):
+            raise ValueError("Field context must match selected template variables.")
+        if entry.editor == "nda":
+            if self.currentData is None or self.currentFields:
+                raise ValueError("NDA data must match the selected template workflow.")
+        elif self.currentData is not None or fields != template_fields(entry.filename):
+            raise ValueError("Field context must include selected template variables in source order.")
+        return self
 
 
 class PartyPatch(StrictModel):
@@ -73,6 +103,21 @@ class NdaPatch(StrictModel):
         return value
 
 
+class TemplateSuggestion(StrictModel):
+    templateId: str
+    reason: str = Field(min_length=1, max_length=300)
+
+
 class ChatResponse(StrictModel):
     reply: str = Field(min_length=1, max_length=2000)
-    updates: NdaPatch
+    updates: NdaPatch | None
+    fieldUpdates: list[FieldUpdate] = Field(max_length=100)
+    suggestions: list[TemplateSuggestion] = Field(max_length=3)
+    needsMoreInformation: bool
+    nextQuestion: str | None = Field(max_length=500)
+
+    @model_validator(mode="after")
+    def question_matches_information_need(self):
+        if self.needsMoreInformation != bool(self.nextQuestion and self.nextQuestion.strip()):
+            raise ValueError("A concise follow-up question is required when more information is needed.")
+        return self
