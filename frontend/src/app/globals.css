@@ -61,6 +61,18 @@ body {
 .button-outline { border: 1px solid var(--primary); color: var(--primary); }
 .button-outline:hover { background: #fbedf1; }
 
+.legal-disclaimer {
+  margin: 0 0 1.25rem;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--secondary);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  padding: 0.875rem 1rem;
+  color: var(--text);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
 .chat-panel, .suggestion {
   border: 1px solid var(--border);
   border-radius: 1rem;

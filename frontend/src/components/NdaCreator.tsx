@@ -2,7 +2,9 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import NdaChat from "@/components/NdaChat";
-import PrototypeSignIn from "@/components/PrototypeSignIn";
+import LegalDisclaimer from "@/components/LegalDisclaimer";
+import PrototypeSignIn, { type User } from "@/components/PrototypeSignIn";
+import { listDocuments, saveDocument, getDocument, type DocumentState, type DocumentSummary, type SavedDocument } from "@/lib/documents";
 import { applyPatch, currentDataForChat, sendChatTurn, type ChatMessage, type ChatTemplate, type FieldPath } from "@/lib/chat";
 import { buildCoverPage, buildDocument, defaultNdaData, type NdaData, type Party } from "@/lib/nda";
 import { fillTemplateMarkdown } from "@/lib/template-markdown";
@@ -60,7 +62,14 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
   const [fieldDrafts, setFieldDrafts] = useState<Record<string, Record<string, string>>>({});
   const fieldDraftsRef = useRef(fieldDrafts);
   const dataRef = useRef(data);
-  const [signedIn, setSignedIn] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  const [documentId, setDocumentId] = useState<string | null>(null);
+  const [documentTitle, setDocumentTitle] = useState("Untitled agreement");
+  const [documentStatus, setDocumentStatus] = useState("");
+  const [documentError, setDocumentError] = useState("");
+  const [documentPending, setDocumentPending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [consent, setConsent] = useState(false);
@@ -68,6 +77,7 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
   const [error, setError] = useState("");
   const manuallyEdited = useRef(new Set<string>());
   const requestGeneration = useRef(0);
+  const documentListGeneration = useRef(0);
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId)!;
   const isNdaEditor = selectedTemplate.editor === "nda";
   const markdown = isNdaEditor
@@ -86,9 +96,24 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
   }
 
   useEffect(() => {
-    // Today's date is only known in the browser; setting it here keeps the page prerenderable.
     commitData((current) => current.effectiveDate ? current : { ...current, effectiveDate: new Date().toISOString().slice(0, 10) });
+    void fetch("/api/auth/session", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) return;
+      const result = await response.json();
+      setUser(result.user);
+    }).finally(() => setSessionLoading(false));
   }, []);
+
+  useEffect(() => {
+    const generation = ++documentListGeneration.current;
+    if (!user) return;
+    void listDocuments().then((result) => {
+      if (generation === documentListGeneration.current) setDocuments(result.items);
+    }).catch((reason) => {
+      if (generation === documentListGeneration.current) setDocumentError(reason instanceof Error ? reason.message : "Unable to load saved documents.");
+    });
+    return () => { documentListGeneration.current += 1; };
+  }, [user]);
 
   const isBrowser = useSyncExternalStore(() => () => {}, () => true, () => false);
   const html = isBrowser ? renderMarkdown(markdown) : "";
@@ -162,6 +187,10 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
     setMessages([]);
     setError("");
     setConflicts([]);
+    setDocumentId(null);
+    setDocumentTitle("Untitled agreement");
+    setDocumentStatus("");
+    setDocumentError("");
     setSelectedTemplateId(id);
   }
 
@@ -185,7 +214,7 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
     setConflicts((current) => current.filter((item) => item.path !== conflict.path || item.templateId !== conflict.templateId));
   }
 
-  function signOut() {
+  function clearDraft() {
     requestGeneration.current += 1;
     setPending(false);
     manuallyEdited.current.clear();
@@ -197,7 +226,69 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
     setConflicts([]);
     setConsent(false);
     setError("");
-    setSignedIn(false);
+  }
+
+  async function signOut() {
+    const response = await fetch("/api/auth/signout", { method: "POST" });
+    clearDraft();
+    documentListGeneration.current += 1;
+    setDocuments([]);
+    setDocumentId(null);
+    setDocumentTitle("Untitled agreement");
+    setDocumentStatus("");
+    setDocumentError(response.ok ? "" : "Your local session ended, but the server could not revoke it. Please retry sign out.");
+    setUser(null);
+  }
+
+  async function saveCurrentDocument() {
+    const generation = requestGeneration.current;
+    setDocumentPending(true);
+    setDocumentError("");
+    setDocumentStatus("");
+    const state: DocumentState = {
+      templateId: selectedTemplateId,
+      ndaData: isNdaEditor ? data : null,
+      fields: isNdaEditor ? {} : fieldDrafts[selectedTemplateId] ?? {},
+    };
+    try {
+      const saved = await saveDocument({ id: documentId ?? undefined, title: documentTitle, state });
+      if (generation !== requestGeneration.current) return;
+      setDocumentId(saved.id);
+      setDocumentTitle(saved.title);
+      setDocumentStatus("Saved.");
+      const result = await listDocuments();
+      if (generation === requestGeneration.current) setDocuments(result.items);
+    } catch (reason) {
+      if (generation === requestGeneration.current) setDocumentError(reason instanceof Error ? reason.message : "Unable to save document.");
+    } finally {
+      if (generation === requestGeneration.current) setDocumentPending(false);
+    }
+  }
+
+  async function openDocument(summary: DocumentSummary) {
+    let generation = requestGeneration.current;
+    setDocumentPending(true);
+    setDocumentError("");
+    try {
+      const saved: SavedDocument = await getDocument(summary.id);
+      if (generation !== requestGeneration.current) return;
+      clearDraft();
+      generation = requestGeneration.current;
+      setSelectedTemplateId(saved.templateId);
+      setDocumentId(saved.id);
+      setDocumentTitle(saved.title);
+      if (saved.state.ndaData) commitData(saved.state.ndaData);
+      else {
+        const drafts = { ...fieldDraftsRef.current, [saved.templateId]: saved.state.fields };
+        fieldDraftsRef.current = drafts;
+        setFieldDrafts(drafts);
+      }
+      setDocumentStatus(`Opened “${saved.title}”.`);
+    } catch (reason) {
+      if (generation === requestGeneration.current) setDocumentError(reason instanceof Error ? reason.message : "Unable to open document.");
+    } finally {
+      if (generation === requestGeneration.current) setDocumentPending(false);
+    }
   }
 
   function downloadMarkdown() {
@@ -216,20 +307,32 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
     window.print();
   }
 
-  if (!signedIn) return <PrototypeSignIn onSignIn={() => setSignedIn(true)} />;
+  if (sessionLoading) return <main className="mx-auto flex min-h-screen items-center p-6 text-[var(--muted)]">Checking your session…</main>;
+  if (!user) return <PrototypeSignIn onSignIn={setUser} />;
 
   return (
     <main className="mx-auto w-full max-w-[1800px] p-4 sm:p-6">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-wide text-[var(--primary)]">Prelegal prototype</p>
-          <h1 className="text-2xl font-semibold">Agreement Creator</h1>
+          <p className="text-sm font-semibold uppercase tracking-wide text-[var(--primary)]">Prelegal</p>
+          <h1 className="text-2xl font-semibold">Agreement workspace</h1>
+          <p className="text-sm text-[var(--muted)]">Signed in as {user.email}</p>
         </div>
-        <button className="button-secondary" type="button" onClick={signOut}>Sign out</button>
+        <button className="button-secondary" type="button" onClick={() => void signOut()}>Sign out</button>
       </header>
+      <LegalDisclaimer />
+      <section className="mb-5 grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:grid-cols-[minmax(180px,1fr)_auto] print:hidden" aria-label="Saved documents">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="min-w-[180px] flex-1 space-y-1 text-sm font-medium"><span>Document title</span><input className={input} maxLength={200} value={documentTitle} onChange={(event) => setDocumentTitle(event.target.value)} /></label>
+          <button className="button-primary" type="button" disabled={documentPending} onClick={() => void saveCurrentDocument()}>{documentPending ? "Saving…" : documentId ? "Save changes" : "Save document"}</button>
+          {documentStatus && <p role="status" className="text-sm text-[var(--success)]">{documentStatus}</p>}
+          {documentError && <p role="alert" className="text-sm text-[var(--error)]">{documentError}</p>}
+        </div>
+        <label className="space-y-1 text-sm font-medium"><span>Saved documents</span><select className={input} value="" disabled={documentPending || documents.length === 0} onChange={(event) => { const selected = documents.find((item) => item.id === event.target.value); if (selected) void openDocument(selected); }}><option value="">{documents.length ? "Open a saved document…" : "No saved documents yet"}</option>{documents.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+      </section>
       <label className="mb-5 block max-w-xl space-y-1 print:hidden">
         <span className="text-sm font-medium">Document template</span>
-        <select className={input} value={selectedTemplateId} onChange={(event) => selectTemplate(event.target.value)}>
+        <select className={input} value={selectedTemplateId} disabled={documentPending} onChange={(event) => selectTemplate(event.target.value)}>
           {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
         </select>
       </label>

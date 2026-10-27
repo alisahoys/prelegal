@@ -2,9 +2,11 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function signIn(page: Page) {
   await page.goto("/");
-  await page.getByLabel("Email").fill("prototype@example.test");
-  await page.getByLabel("Password").fill("unused-password");
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Create an account" }).click();
+  await page.getByLabel("Email").fill(`user-${crypto.randomUUID()}@example.com`);
+  await page.getByLabel("Password").fill("unused-password-long");
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Agreement workspace" })).toBeVisible();
 }
 
 const consent = "I understand and agree to send this information for AI assistance.";
@@ -81,9 +83,10 @@ test("ignores a pending response after sign-out", async ({ page }) => {
   await page.getByRole("button", { name: "Send to assistant" }).click();
   await expect(page.getByText("Thinking…")).toBeVisible();
   await page.getByRole("button", { name: "Sign out" }).click();
-  await page.getByLabel("Email").fill("another@example.test");
-  await page.getByLabel("Password").fill("unused-password");
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Create an account" }).click();
+  await page.getByLabel("Email").fill(`another-${crypto.randomUUID()}@example.com`);
+  await page.getByLabel("Password").fill("unused-password-long");
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
   complete({
     status: 200,
     contentType: "application/json",
