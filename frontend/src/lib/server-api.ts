@@ -4,6 +4,11 @@ import { NextResponse } from "next/server";
 const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8000";
 const cookieName = "prelegal_session";
 
+export function rejectCrossOrigin(request: Request) {
+  if (request.headers.get("origin") === new URL(request.url).origin) return null;
+  return NextResponse.json({ detail: "Cross-origin requests are not allowed." }, { status: 403 });
+}
+
 export async function backendRequest(path: string, init: RequestInit = {}, authenticated = false) {
   const headers = new Headers(init.headers);
   if (init.body) headers.set("content-type", "application/json");
@@ -14,7 +19,8 @@ export async function backendRequest(path: string, init: RequestInit = {}, authe
   }
   try {
     const response = await fetch(`${backendUrl}${path}`, { ...init, headers, cache: "no-store" });
-    const body = response.status === 204 ? null : await response.json();
+    if (response.status === 204) return new NextResponse(null, { status: 204 });
+    const body = await response.json();
     return NextResponse.json(body, { status: response.status });
   } catch {
     return NextResponse.json({ detail: "The service could not be reached. Please try again." }, { status: 502 });

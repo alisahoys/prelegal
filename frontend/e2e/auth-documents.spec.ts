@@ -17,8 +17,9 @@ test("accounts only see their own saved documents and can reopen them", async ({
   await userA.getByLabel("Purpose").fill("Alice private purpose");
   await userA.getByRole("button", { name: "Save document" }).click();
   await expect(userA.getByRole("status")).toContainText("Saved.");
-  const savedOption = userA.getByLabel("Saved documents").locator("option", { hasText: "Alice NDA" });
-  await expect(savedOption).toBeVisible();
+  const savedDocuments = (page: import("@playwright/test").Page) => page.getByRole("region", { name: "Saved documents" }).getByRole("combobox");
+  const savedOption = savedDocuments(userA).locator("option", { hasText: "Alice NDA" });
+  await expect(savedOption).toHaveCount(1);
   await userA.getByLabel("Governing law").fill("Delaware");
   await userA.getByRole("button", { name: "Save changes" }).click();
   await expect(userA.getByRole("status")).toContainText("Saved.");
@@ -27,17 +28,19 @@ test("accounts only see their own saved documents and can reopen them", async ({
 
   const userB = await browser.newPage();
   await signUp(userB, `bob-${crypto.randomUUID()}@example.com`);
-  await expect(userB.getByLabel("Saved documents")).toContainText("No saved documents yet");
+  await expect(savedDocuments(userB)).toContainText("No saved documents yet");
   const response = await userB.request.get("/api/documents");
   expect(await response.json()).toEqual({ items: [] });
 
   await userA.reload();
   await expect(userA.getByRole("heading", { name: "Agreement workspace" })).toBeVisible();
-  await userA.getByLabel("Saved documents").selectOption({ label: "Alice NDA" });
+  await savedDocuments(userA).selectOption({ label: "Alice NDA" });
   await expect(userA.getByLabel("Purpose")).toHaveValue("Alice private purpose");
   await expect(userA.getByLabel("Governing law")).toHaveValue("Delaware");
 
   await userA.getByRole("button", { name: "Sign out" }).click();
+  await expect(userA.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+  await userA.reload();
   await expect(userA.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   await userA.context().close();
   await userB.context().close();

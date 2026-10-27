@@ -77,6 +77,7 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
   const [error, setError] = useState("");
   const manuallyEdited = useRef(new Set<string>());
   const requestGeneration = useRef(0);
+  const documentListGeneration = useRef(0);
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId)!;
   const isNdaEditor = selectedTemplate.editor === "nda";
   const markdown = isNdaEditor
@@ -104,8 +105,14 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
   }, []);
 
   useEffect(() => {
+    const generation = ++documentListGeneration.current;
     if (!user) return;
-    void listDocuments().then((result) => setDocuments(result.items)).catch((reason) => setDocumentError(reason instanceof Error ? reason.message : "Unable to load saved documents."));
+    void listDocuments().then((result) => {
+      if (generation === documentListGeneration.current) setDocuments(result.items);
+    }).catch((reason) => {
+      if (generation === documentListGeneration.current) setDocumentError(reason instanceof Error ? reason.message : "Unable to load saved documents.");
+    });
+    return () => { documentListGeneration.current += 1; };
   }, [user]);
 
   const isBrowser = useSyncExternalStore(() => () => {}, () => true, () => false);
@@ -183,6 +190,7 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
     setDocumentId(null);
     setDocumentTitle("Untitled agreement");
     setDocumentStatus("");
+    setDocumentError("");
     setSelectedTemplateId(id);
   }
 
@@ -221,15 +229,19 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
   }
 
   async function signOut() {
-    await fetch("/api/auth/signout", { method: "POST" });
+    const response = await fetch("/api/auth/signout", { method: "POST" });
     clearDraft();
+    documentListGeneration.current += 1;
     setDocuments([]);
     setDocumentId(null);
+    setDocumentTitle("Untitled agreement");
     setDocumentStatus("");
+    setDocumentError(response.ok ? "" : "Your local session ended, but the server could not revoke it. Please retry sign out.");
     setUser(null);
   }
 
   async function saveCurrentDocument() {
+    const generation = requestGeneration.current;
     setDocumentPending(true);
     setDocumentError("");
     setDocumentStatus("");
@@ -240,24 +252,28 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
     };
     try {
       const saved = await saveDocument({ id: documentId ?? undefined, title: documentTitle, state });
+      if (generation !== requestGeneration.current) return;
       setDocumentId(saved.id);
       setDocumentTitle(saved.title);
       setDocumentStatus("Saved.");
       const result = await listDocuments();
-      setDocuments(result.items);
+      if (generation === requestGeneration.current) setDocuments(result.items);
     } catch (reason) {
-      setDocumentError(reason instanceof Error ? reason.message : "Unable to save document.");
+      if (generation === requestGeneration.current) setDocumentError(reason instanceof Error ? reason.message : "Unable to save document.");
     } finally {
-      setDocumentPending(false);
+      if (generation === requestGeneration.current) setDocumentPending(false);
     }
   }
 
   async function openDocument(summary: DocumentSummary) {
+    let generation = requestGeneration.current;
     setDocumentPending(true);
     setDocumentError("");
     try {
       const saved: SavedDocument = await getDocument(summary.id);
+      if (generation !== requestGeneration.current) return;
       clearDraft();
+      generation = requestGeneration.current;
       setSelectedTemplateId(saved.templateId);
       setDocumentId(saved.id);
       setDocumentTitle(saved.title);
@@ -269,9 +285,9 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
       }
       setDocumentStatus(`Opened “${saved.title}”.`);
     } catch (reason) {
-      setDocumentError(reason instanceof Error ? reason.message : "Unable to open document.");
+      if (generation === requestGeneration.current) setDocumentError(reason instanceof Error ? reason.message : "Unable to open document.");
     } finally {
-      setDocumentPending(false);
+      if (generation === requestGeneration.current) setDocumentPending(false);
     }
   }
 
@@ -316,7 +332,7 @@ export default function NdaCreator({ templates }: { templates: Template[] }) {
       </section>
       <label className="mb-5 block max-w-xl space-y-1 print:hidden">
         <span className="text-sm font-medium">Document template</span>
-        <select className={input} value={selectedTemplateId} onChange={(event) => selectTemplate(event.target.value)}>
+        <select className={input} value={selectedTemplateId} disabled={documentPending} onChange={(event) => selectTemplate(event.target.value)}>
           {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
         </select>
       </label>

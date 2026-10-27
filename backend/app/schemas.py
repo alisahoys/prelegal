@@ -131,9 +131,6 @@ class SavedDocumentState(StrictModel):
         if entry.editor == "nda":
             if self.ndaData is None or self.fields:
                 raise ValueError("NDA data must match the selected template workflow.")
-            allowed = {"purpose", "effectiveDate", "mndaTermType", "mndaTermYears", "confidentialityType", "confidentialityYears", "governingLaw", "jurisdiction", "modifications", "party1", "party2"}
-            if set(self.ndaData) != allowed:
-                raise ValueError("NDA state must include all editable fields.")
             NdaDraft.model_validate(self.ndaData)
         else:
             if self.ndaData is not None:

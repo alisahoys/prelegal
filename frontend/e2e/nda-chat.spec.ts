@@ -6,6 +6,7 @@ async function signIn(page: Page) {
   await page.getByLabel("Email").fill(`user-${crypto.randomUUID()}@example.com`);
   await page.getByLabel("Password").fill("unused-password-long");
   await page.getByRole("button", { name: "Create account", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Agreement workspace" })).toBeVisible();
 }
 
 const consent = "I understand and agree to send this information for AI assistance.";

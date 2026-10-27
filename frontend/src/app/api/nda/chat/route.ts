@@ -1,3 +1,4 @@
+import { rejectCrossOrigin } from "@/lib/server-api";
 import { NextResponse } from "next/server";
 
 const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8000";
@@ -9,6 +10,8 @@ const messages = [
 ];
 
 export async function POST(request: Request) {
+  const rejected = rejectCrossOrigin(request);
+  if (rejected) return rejected;
   const token = request.headers.get("cookie")?.split(";").map((part) => part.trim()).find((part) => part.startsWith("prelegal_session="))?.slice("prelegal_session=".length);
   if (!token) return NextResponse.json({ detail: "Authentication required." }, { status: 401 });
   const abort = new AbortController();
