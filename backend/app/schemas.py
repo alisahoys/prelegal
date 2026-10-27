@@ -1,13 +1,28 @@
 from datetime import date
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.catalog import catalog_by_id, template_fields
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class AuthRequest(StrictModel):
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: EmailStr) -> str:
+        return str(value).strip().casefold()
+
+
+class UserResponse(StrictModel):
+    id: int
+    email: EmailStr
 
 
 class PartyContext(StrictModel):
@@ -101,6 +116,72 @@ class NdaPatch(StrictModel):
         if value and (len(value) != 10 or date.fromisoformat(value).isoformat() != value):
             raise ValueError("Use YYYY-MM-DD.")
         return value
+
+
+class SavedDocumentState(StrictModel):
+    templateId: str
+    ndaData: dict[str, Any] | None
+    fields: dict[str, str]
+
+    @model_validator(mode="after")
+    def validate_template_state(self):
+        entry = catalog_by_id().get(self.templateId)
+        if entry is None:
+            raise ValueError("Unknown template ID.")
+        if entry.editor == "nda":
+            if self.ndaData is None or self.fields:
+                raise ValueError("NDA data must match the selected template workflow.")
+            allowed = {"purpose", "effectiveDate", "mndaTermType", "mndaTermYears", "confidentialityType", "confidentialityYears", "governingLaw", "jurisdiction", "modifications", "party1", "party2"}
+            if set(self.ndaData) != allowed:
+                raise ValueError("NDA state must include all editable fields.")
+            NdaDraft.model_validate(self.ndaData)
+        else:
+            if self.ndaData is not None:
+                raise ValueError("Template field state must match the selected template workflow.")
+            entry_fields = set(template_fields(entry.filename))
+            if not set(self.fields).issubset(entry_fields):
+                raise ValueError("Template fields must match the selected template.")
+            if any(len(value) > 2000 for value in self.fields.values()):
+                raise ValueError("Template field values are too long.")
+        return self
+
+
+class NdaDraft(StrictModel):
+    purpose: str = Field(max_length=2000)
+    effectiveDate: str = Field(max_length=10)
+    mndaTermType: Literal["expires", "continues"]
+    mndaTermYears: int = Field(ge=1, le=100)
+    confidentialityType: Literal["years", "perpetuity"]
+    confidentialityYears: int = Field(ge=1, le=100)
+    governingLaw: str = Field(max_length=300)
+    jurisdiction: str = Field(max_length=500)
+    modifications: str = Field(max_length=4000)
+    party1: PartyContext
+    party2: PartyContext
+
+    @field_validator("effectiveDate")
+    @classmethod
+    def valid_iso_date(cls, value: str) -> str:
+        if value and (len(value) != 10 or date.fromisoformat(value).isoformat() != value):
+            raise ValueError("Use YYYY-MM-DD.")
+        return value
+
+
+class SavedDocumentRequest(StrictModel):
+    title: str = Field(min_length=1, max_length=200)
+    state: SavedDocumentState
+
+
+class SavedDocumentSummary(StrictModel):
+    id: str
+    title: str
+    templateId: str
+    createdAt: str
+    updatedAt: str
+
+
+class SavedDocument(SavedDocumentSummary):
+    state: SavedDocumentState
 
 
 class TemplateSuggestion(StrictModel):

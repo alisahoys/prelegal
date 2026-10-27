@@ -16,6 +16,9 @@ from app.schemas import ChatRequest, ChatResponse, NdaPatch
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr("app.main.DATABASE_PATH", tmp_path / "prelegal.sqlite3")
     with TestClient(app) as test_client:
+        signup = test_client.post("/api/auth/signup", json={"email": "chat@example.com", "password": "test-password-long"})
+        assert signup.status_code == 201
+        test_client.headers.update({"Authorization": f"Bearer {signup.json()['accessToken']}"})
         yield test_client
 
 

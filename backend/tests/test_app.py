@@ -26,6 +26,6 @@ def test_startup_recreates_users_table(monkeypatch, tmp_path: Path):
         columns = connection.execute("PRAGMA table_info(users)").fetchall()
         rows = connection.execute("SELECT COUNT(*) FROM users").fetchone()[0]
 
-    assert tables == [("users",)]
+    assert tables == [("users",), ("sessions",), ("saved_documents",)]
     assert [column[1] for column in columns] == ["id", "email", "password_hash", "created_at"]
     assert rows == 0
