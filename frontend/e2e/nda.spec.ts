@@ -5,10 +5,12 @@ const preview = (page: Page) => page.locator("#nda-preview");
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel("Email").fill("prototype@example.test");
-  await page.getByLabel("Password").fill("prototype-password");
-  await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByRole("heading", { name: "Agreement Creator" })).toBeVisible();
+  const email = `user-${crypto.randomUUID()}@example.com`;
+  await page.getByRole("button", { name: "Create an account" }).click();
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill("prototype-password-long");
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Agreement workspace" })).toBeVisible();
 });
 
 test("shows placeholders and today's date before anything is entered", async ({ page }) => {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const backendUrl = process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8000";
 const messages = [
   "The free AI models are temporarily rate-limited. Your draft is unchanged; try again or continue editing manually.",
   "The AI took too long to respond. Please try again.",
@@ -9,12 +9,14 @@ const messages = [
 ];
 
 export async function POST(request: Request) {
+  const token = request.headers.get("cookie")?.split(";").map((part) => part.trim()).find((part) => part.startsWith("prelegal_session="))?.slice("prelegal_session=".length);
+  if (!token) return NextResponse.json({ detail: "Authentication required." }, { status: 401 });
   const abort = new AbortController();
   const timeout = setTimeout(() => abort.abort(), 90_000);
   try {
     const response = await fetch(`${backendUrl}/api/nda/chat`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
       body: await request.text(),
       signal: abort.signal,
       cache: "no-store",

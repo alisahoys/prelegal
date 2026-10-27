@@ -2,8 +2,6 @@ import sqlite3
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
-from pydantic import EmailStr
-
 from app.database import database_connection
 from app.schemas import AuthRequest, UserResponse
 from app.security import hash_password, new_session, session_token_hash, verify_password
@@ -33,7 +31,7 @@ def create_session(request: Request, user_id: int) -> str:
 
 
 def user_response(row) -> UserResponse:
-    return UserResponse(id=row["id"], email=EmailStr(row["email"]))
+    return UserResponse(id=row["id"], email=row["email"])
 
 
 @router.post("/signup", status_code=201)

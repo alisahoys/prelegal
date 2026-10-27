@@ -14,7 +14,7 @@ describe("chat API proxy", () => {
       if (init?.signal?.aborted) rejectAbort();
       else init?.signal?.addEventListener("abort", rejectAbort, { once: true });
     }));
-    const request = new Request("http://localhost/api/nda/chat", { method: "POST", body: "{}" });
+    const request = new Request("http://localhost/api/nda/chat", { method: "POST", headers: { cookie: "prelegal_session=test-token" }, body: "{}" });
 
     const responsePromise = POST(request);
     await vi.advanceTimersByTimeAsync(90_000);

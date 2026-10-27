@@ -6,9 +6,10 @@ import { extractTemplateFields } from "../src/lib/template-markdown";
 
 async function signIn(page: Page) {
   await page.goto("/");
-  await page.getByLabel("Email").fill("prototype@example.test");
-  await page.getByLabel("Password").fill("unused-password");
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Create an account" }).click();
+  await page.getByLabel("Email").fill(`user-${crypto.randomUUID()}@example.com`);
+  await page.getByLabel("Password").fill("unused-password-long");
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
 }
 
 const consent = "I understand and agree to send this information for AI assistance.";
